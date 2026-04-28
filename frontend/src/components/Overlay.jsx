@@ -12,7 +12,7 @@ const Overlay = ({ type, score, onStart, onRestart, onShowScoreboard, onBack, hi
   useEffect(() => {
     if (type === 'SCOREBOARD') {
       setIsLoading(true);
-      fetch('http://localhost:3001/api/scores')
+      fetch('http://localhost:6000/api/scores')
         .then(res => res.json())
         .then(data => {
           setScores(Array.isArray(data) ? data : []);
@@ -37,7 +37,7 @@ const Overlay = ({ type, score, onStart, onRestart, onShowScoreboard, onBack, hi
     const endpoint = isRegistering ? 'register' : 'login';
     
     try {
-      const response = await fetch(`http://localhost:3001/api/${endpoint}`, {
+      const response = await fetch(`http://localhost:6000/api/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: nameInput, password: passwordInput })
@@ -156,7 +156,7 @@ const Overlay = ({ type, score, onStart, onRestart, onShowScoreboard, onBack, hi
             )}
 
             <div className="primo-menu-btns">
-              <button className="pill-btn primary large" onClick={onStart}>
+              <button className="pill-btn primary large" onClick={type === 'GAME_OVER' ? onRestart : onStart}>
                 {type === 'START' ? 'JOGAR' : 'RECOMEÇAR'}
               </button>
               

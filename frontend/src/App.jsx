@@ -30,7 +30,7 @@ function App() {
     
     if (user && user.id && user.id !== 'GUEST') {
       try {
-        await fetch('http://localhost:3001/api/scores', {
+        await fetch('http://localhost:6000/api/scores', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId: user.id, km: finalScore / 1000 })

@@ -56,7 +56,6 @@ body {
 
 .uca-crab {
   transition: transform 0.1s linear;
-  mix-blend-mode: screen; /* Effectively removes black backgrounds from AI sprites */
 }
 
 .uca-crab.attacking {
@@ -124,13 +123,12 @@ body {
 }
 
 .heart-life {
-  width: 32px;
-  height: 32px;
-  background-image: url("/heart_clean.png");
-  background-size: cover;
+  width: 38px;
+  height: 38px;
+  background-image: url("/heart_new.png");
+  background-size: contain;
   background-repeat: no-repeat;
   image-rendering: pixelated;
-  /* Removed mix-blend-mode */
   transition: all 0.3s ease;
   animation: heart-beat 1s infinite ease-in-out;
 }
@@ -165,7 +163,7 @@ body {
   position: absolute;
   top: 0;
   left: 0;
-  width: 200%;
+  width: 100%;
   height: 100%;
   background-image: url("/sky.png");
   background-size: 1024px 100%;
@@ -213,6 +211,110 @@ body {
   align-items: flex-start;
   padding: 20px 40px;
   width: 100%;
+  gap: 20px;
+}
+
+.abilities-container {
+  position: absolute;
+  bottom: 100px; /* Lowered */
+  left: 30px;
+  display: flex;
+  flex-direction: row; /* Horizontal for less obstruction */
+  gap: 15px;
+  z-index: 100;
+  opacity: 0.6; /* More discrete */
+  transition: opacity 0.3s ease;
+}
+
+.abilities-container:hover {
+  opacity: 1;
+}
+
+.ability-jump .ability-key {
+  background: #fbbf24; 
+}
+
+.ability-jump .ability-status {
+  color: #fbbf24;
+}
+
+.dash-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: rgba(15, 23, 42, 0.6); /* Transparent */
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 8px;
+  color: #fff;
+  font-family: 'Outfit', sans-serif;
+  position: relative;
+  overflow: hidden;
+  min-width: 130px;
+  transform: scale(0.85); /* Smaller */
+}
+
+.ability-key {
+  background: #38bdf8;
+  color: #0c4a6e;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 4px;
+  font-family: 'Press Start 2P', cursive;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.ability-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ability-name {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  opacity: 0.6;
+}
+
+.ability-status {
+  font-size: 14px;
+  font-weight: 700;
+  color: #38bdf8;
+}
+
+.dash-indicator.cooldown {
+  border-color: rgba(255, 255, 255, 0.1);
+  opacity: 0.8;
+}
+
+.dash-indicator.cooldown .ability-key {
+  background: #475569;
+  color: #1e293b;
+}
+
+.dash-indicator.cooldown .ability-status {
+  color: #94a3b8;
+}
+
+.cooldown-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 4px;
+  background: #38bdf8;
+  width: 100%;
+  animation: cooldown-fill linear forwards;
+}
+
+@keyframes cooldown-fill {
+  from { width: 0%; }
+  to { width: 100%; }
 }
 
 /* PIXEL ART OVERLAY SYSTEM */
@@ -733,11 +835,9 @@ body {
   left: 0;
   width: 100%;
   height: 80px;
-  background-image: url("/ground.png");
-  background-repeat: repeat-x;
-  background-size: 1024px 128px;
-  background-position: bottom;
+  background-color: #2b1d12; /* Deep muddy brown */
   image-rendering: pixelated;
   z-index: 10;
-  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6);
+  border-top: 4px solid #3d2b1d; /* Slight highlight on the edge */
 }
