@@ -1,13 +1,17 @@
+
 .app-container {
   width: 100vw;
   height: 100vh;
   position: relative;
-  background: #0f172a;
+  background: #020b14;
   display: flex;
   justify-content: center;
   align-items: center;
 }
 
+/* ============================================
+   GAME VIEWPORT — 2.5D PSEUDO-PERSPECTIVE
+   ============================================ */
 .game-viewport {
   width: 100%;
   height: 100%;
@@ -15,37 +19,311 @@
   max-height: 800px;
   position: relative;
   overflow: hidden;
-  background: #0f172a;
-  border: 4px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
+  background: #020b14;
+  border: 2px solid rgba(80, 200, 120, 0.15);
+  border-radius: 8px;
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,0.8),
+    0 0 60px rgba(0, 180, 80, 0.08),
+    0 30px 80px rgba(0,0,0,0.9);
   display: flex;
   flex-direction: column;
 }
 
+/* Scanline overlay for retro feel */
+.game-viewport::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.06) 2px,
+    rgba(0, 0, 0, 0.06) 4px
+  );
+  pointer-events: none;
+  z-index: 999;
+  border-radius: 8px;
+}
+
+/* ============================================
+   SCENARIO AREA — MULTI-LAYER PARALLAX
+   ============================================ */
 .scenario-area {
   flex: 1;
   width: 100%;
   position: relative;
-  background: transparent; /* Relying on parallax-bg gradient */
-}
-
-.ground-area {
-  height: 80px;
-  width: 100%;
-  background: #2d1e17; /* Lighter Mud */
-  border-top: 4px solid #3d2b1f;
-  position: relative;
   overflow: hidden;
 }
 
-
-
-.overlay {
+/* Layer 1 — Forest Background (slowest) */
+.parallax-bg {
   position: absolute;
-  top: 0;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background-image: url('/forest_bg.png');
+  background-size: auto 100%;
+  background-repeat: repeat-x;
+  image-rendering: pixelated;
+  z-index: 1;
+}
+
+/* Layer 2 — Mangrove BG (medium) */
+.parallax-trees {
+  position: absolute;
+  bottom: 0; left: 0;
+  width: 100%; height: 80%;
+  background-image: url('/mangrove_bg.png');
+  background-size: auto 100%;
+  background-repeat: repeat-x;
+  background-position-y: bottom;
+  image-rendering: pixelated;
+  z-index: 2;
+  opacity: 0.4;
+}
+
+/* Atmospheric fog / depth gradient */
+.depth-fog {
+  position: absolute;
+  bottom: 0; left: 0;
+  width: 100%; height: 40%;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(10, 40, 40, 0.4) 60%,
+    rgba(5, 20, 20, 0.8) 100%
+  );
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* ============================================
+   GROUND — PSEUDO-PERSPECTIVE 2.5D
+   ============================================ */
+.ground-area {
+  position: absolute;
+  bottom: 0;
   left: 0;
   width: 100%;
-  height: 100%;
+  height: 90px;
+  z-index: 10;
+  overflow: hidden;
+
+  /* Trapezoidal perspective via gradient layers */
+  background:
+    /* Surface moss/dirt texture */
+    repeating-linear-gradient(
+      90deg,
+      transparent 0px,
+      transparent 60px,
+      rgba(26, 90, 90, 0.1) 60px,
+      rgba(26, 90, 90, 0.1) 62px
+    ),
+    /* Depth shading — darker at back, lighter at front */
+    linear-gradient(
+      to bottom,
+      #0a2a2a 0%,
+      #0d3a3a 20%,
+      #1a4a4a 40%,
+      #0d3030 70%,
+      #051515 100%
+    );
+
+  /* Perspective-ish top border with glow */
+  border-top: 3px solid #1a5a5a;
+  box-shadow:
+    0 -2px 20px rgba(26, 90, 90, 0.3),
+    inset 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+
+/* Perspective lines running to horizon */
+.ground-area::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0px,
+    transparent 120px,
+    rgba(58, 255, 122, 0.04) 120px,
+    rgba(58, 255, 122, 0.04) 121px
+  );
+  pointer-events: none;
+}
+
+/* Moving ground lines (animated via JS background-position) */
+.ground-area::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 200%; height: 100%;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0px,
+    transparent 39px,
+    rgba(255,255,255,0.03) 39px,
+    rgba(255,255,255,0.03) 40px
+  );
+  pointer-events: none;
+}
+
+/* ============================================
+   HUD
+   ============================================ */
+.hud {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  z-index: 50;
+  padding: 16px 24px;
+  /* Subtle top gradient */
+  background: linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, transparent 100%);
+  pointer-events: none;
+}
+
+.heart-container {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.heart-life {
+  width: 34px;
+  height: 34px;
+  background-image: url('/heart_new.png');
+  background-size: contain;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  transition: all 0.3s ease;
+  animation: heart-beat 1.2s infinite ease-in-out;
+  filter: drop-shadow(0 0 6px rgba(255, 60, 60, 0.8));
+}
+
+.heart-life.lost {
+  filter: grayscale(1) opacity(0.25);
+  animation: none;
+}
+
+@keyframes heart-beat {
+  0%, 100% { transform: scale(0.9); }
+  50% { transform: scale(1.1); }
+}
+
+.score-badge {
+  padding: 10px 22px;
+  font-family: 'Press Start 2P', cursive;
+  font-size: 15px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  border: 2px solid rgba(58, 255, 122, 0.5);
+  box-shadow:
+    0 0 15px rgba(58, 255, 122, 0.25),
+    inset 0 0 10px rgba(58, 255, 122, 0.05);
+  color: #3aff7a;
+  text-shadow: 0 0 10px rgba(58, 255, 122, 0.8);
+  border-radius: 6px;
+  letter-spacing: 2px;
+}
+
+/* ============================================
+   ABILITIES HUD
+   ============================================ */
+.abilities-container {
+  position: absolute;
+  bottom: 100px;
+  left: 20px;
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  z-index: 100;
+  opacity: 0.55;
+  transition: opacity 0.3s ease;
+}
+
+.abilities-container:hover { opacity: 1; }
+
+.dash-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: rgba(5, 15, 10, 0.7);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(58, 255, 122, 0.25);
+  border-radius: 6px;
+  color: #fff;
+  font-family: 'Outfit', sans-serif;
+  position: relative;
+  overflow: hidden;
+  min-width: 120px;
+  transform: scale(0.85);
+}
+
+.ability-key {
+  background: #3aff7a;
+  color: #031a08;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 4px;
+  font-family: 'Press Start 2P', cursive;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.ability-jump .ability-key { background: #facc15; color: #1a0f00; }
+.ability-jump .ability-status { color: #facc15; }
+
+.ability-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ability-name {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  opacity: 0.5;
+}
+
+.ability-status {
+  font-size: 11px;
+  font-weight: 700;
+  color: #3aff7a;
+}
+
+.dash-indicator.cooldown { border-color: rgba(255,255,255,0.08); }
+.dash-indicator.cooldown .ability-key { background: #374151; color: #111; }
+.dash-indicator.cooldown .ability-status { color: #6b7280; }
+
+.cooldown-bar {
+  position: absolute;
+  bottom: 0; left: 0;
+  height: 3px;
+  background: #3aff7a;
+  width: 100%;
+  animation: cooldown-fill linear forwards;
+  box-shadow: 0 0 6px #3aff7a;
+}
+
+@keyframes cooldown-fill {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+
+/* ============================================
+   OVERLAY — MENUS E TELAS
+   ============================================ */
+.overlay {
+  position: absolute;
+  inset: 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -56,40 +334,25 @@
   padding: 2rem;
 }
 
-.hud {
-  position: absolute;
-  top: 20px;
-  left: 20px;
-  right: 20px;
-  display: flex;
-  justify-content: space-between;
-  z-index: 50;
-  padding: 10px 20px;
-}
-
-.score-badge {
-  font-size: 24px;
-  font-weight: bold;
-  color: #fff;
-  padding: 8px 16px;
-}
-
 button {
-  background: #ff5722;
-  color: white;
+  background: #3aff7a;
+  color: #031a08;
   border: none;
   padding: 15px 40px;
-  font-size: 24px;
+  font-size: 20px;
   border-radius: 50px;
   cursor: pointer;
-  transition: transform 0.2s, background 0.2s;
-  box-shadow: 0 0 20px rgba(255, 87, 34, 0.5);
+  transition: transform 0.2s, background 0.2s, box-shadow 0.2s;
+  box-shadow: 0 0 20px rgba(58, 255, 122, 0.4);
   margin-top: 20px;
+  font-family: 'Outfit', sans-serif;
+  font-weight: 700;
 }
 
 button:hover {
   transform: scale(1.05);
-  background: #ff7043;
+  background: #5fffaa;
+  box-shadow: 0 0 30px rgba(58, 255, 122, 0.7);
 }
 
 .title {

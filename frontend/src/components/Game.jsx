@@ -6,78 +6,79 @@ const Game = ({ onGameOver, score, setScore }) => {
   const [velocity, setVelocity] = useState({ x: 0, y: 0 })
   const [obstacles, setObstacles] = useState([])
   const [collectibles, setCollectibles] = useState([])
-  const [gameSpeed, setGameSpeed] = useState(6) // Adjusted for better initial pacing
+  const [gameSpeed, setGameSpeed] = useState(6)
   const [lives, setLives] = useState(3)
   const [isInvincible, setIsInvincible] = useState(false)
   const [isAttacking, setIsAttacking] = useState(false)
-  const [facing, setFacing] = useState(1) // 1 for Right, -1 for Left
-  const [chefX, setChefX] = useState(100) // Starts closer to the action
+  const [facing, setFacing] = useState(1)
+  const [chefX, setChefX] = useState(100)
   const [isDashing, setIsDashing] = useState(false)
   const [canDash, setCanDash] = useState(true)
   const [isStunned, setIsStunned] = useState(false)
   const [showWarning, setShowWarning] = useState(true)
-  const [dustParticles, setDustParticles] = useState([]) // For dust effects
-  
+  const [dustParticles, setDustParticles] = useState([])
+  const [blinkOn, setBlinkOn] = useState(true)
+
+  // Blink timer for invincibility
+  useEffect(() => {
+    if (!isInvincible) { setBlinkOn(true); return }
+    const t = setInterval(() => setBlinkOn(b => !b), 80)
+    return () => clearInterval(t)
+  }, [isInvincible])
+
   // Enhanced 8-bit Sound Generator
   const playSound = (freq, type = 'square', duration = 0.1, rampTo = null) => {
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = type;
-      osc.frequency.setValueAtTime(freq, ctx.currentTime);
-      if (rampTo) {
-        osc.frequency.exponentialRampToValueAtTime(rampTo, ctx.currentTime + duration);
-      }
-      gain.gain.setValueAtTime(0.05, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + duration);
-    } catch (e) { console.log("Audio not supported") }
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = type
+      osc.frequency.setValueAtTime(freq, ctx.currentTime)
+      if (rampTo) osc.frequency.exponentialRampToValueAtTime(rampTo, ctx.currentTime + duration)
+      gain.gain.setValueAtTime(0.05, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration)
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start()
+      osc.stop(ctx.currentTime + duration)
+    } catch (e) {}
   }
 
-
   const obstacleTimerRef = useRef(0)
+  const nextObstacleTargetRef = useRef(80) // Initial delay
   const collectibleTimerRef = useRef(0)
   const gameRef = useRef(null)
   const GRAVITY = 1.2
-  const JUMP_FORCE = -22 // Stronger base jump
-  const VIEWPORT_HEIGHT = 720 // Adjusted estimated height
-  const GROUND_HEIGHT = 80
+  const JUMP_FORCE = -22
+  const VIEWPORT_HEIGHT = 720
+  const GROUND_HEIGHT = 90
   const GROUND_Y = VIEWPORT_HEIGHT - GROUND_HEIGHT
 
-
   const CRAB_HEIGHT = 80
-  const playerRef = useRef({ x: 100, y: GROUND_Y - CRAB_HEIGHT, vy: 0, width: 60, height: 60, facing: 1, jumps: 0 })
+  const playerRef = useRef({ x: 600, y: GROUND_Y - CRAB_HEIGHT, vy: 0, width: 60, height: 60, facing: 1, jumps: 0 })
   const keys = useRef({})
-  const catcherState = useRef(0) // 0: Idle, 1: Walk, 2: Run, 3: Jump, 4: Attack
-
+  const catcherState = useRef(0)
 
   // Handle Controls
   useEffect(() => {
     const handleKeyDown = (e) => {
       keys.current[e.code] = true
       if (['Space', 'KeyW', 'ArrowUp'].includes(e.code)) {
-        e.preventDefault();
-        performJump();
+        e.preventDefault()
+        performJump()
       }
       if (e.code === 'KeyQ' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
-        e.preventDefault();
-        performDash();
+        e.preventDefault()
+        performDash()
       }
     }
     const handleKeyUp = (e) => (keys.current[e.code] = false)
     const handleMouseDown = (e) => {
-      // Avoid triggering if clicking buttons or UI
       if (e.target.tagName !== 'BUTTON') performAttack()
     }
-
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('keyup', handleKeyUp)
     window.addEventListener('mousedown', handleMouseDown)
-
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
@@ -86,124 +87,101 @@ const Game = ({ onGameOver, score, setScore }) => {
   }, [canDash, isDashing, facing])
 
   useEffect(() => {
-    const timer = setTimeout(() => setShowWarning(false), 3000);
-    return () => clearTimeout(timer);
-  }, []);
-
+    const timer = setTimeout(() => setShowWarning(false), 3000)
+    return () => clearTimeout(timer)
+  }, [])
 
   // Game Loop
   useEffect(() => {
     let animationId
 
     const update = () => {
-      // 1. Full Auto-Run (Centered)
-      const fixedX = 600; 
-      playerRef.current.x = fixedX;
-      playerRef.current.facing = 1;
-      setFacing(1);
+      const fixedX = 600
+      playerRef.current.x = fixedX
+      playerRef.current.facing = 1
+      setFacing(1)
 
-      // Dash, Stun & S-Turbo Speed Logic
-      let speedMod = 0;
-      if (isDashing) speedMod = 15;
-      if (isStunned) speedMod = -gameSpeed * 0.5;
-      
-      // World speed is progression + modifiers
-      const worldSpeed = Math.max(1.5, gameSpeed + speedMod);
+      let speedMod = 0
+      if (isDashing) speedMod = 15
+      if (isStunned) speedMod = -gameSpeed * 0.5
+      const worldSpeed = Math.max(1.5, gameSpeed + speedMod)
 
-      // (Pulo removido do loop contínuo e movido para performJump no evento keydown)
+      if (keys.current['KeyJ'] && !isAttacking) performAttack()
 
-      // Physics
-      if (keys.current['KeyJ'] && !isAttacking) {
-        performAttack();
-      }
+      const isTurbo = keys.current['KeyS']
+      playerRef.current.vy += isTurbo ? GRAVITY * 3 : GRAVITY
+      playerRef.current.y += playerRef.current.vy
 
-       // Physics: Gravity & Fast Fall
-       const isTurbo = keys.current['KeyS'];
-       playerRef.current.vy += isTurbo ? GRAVITY * 3 : GRAVITY; // Fall 3x faster when holding S
-       playerRef.current.y += playerRef.current.vy;
-
-      // Ground collision
       if (playerRef.current.y > GROUND_Y - CRAB_HEIGHT) {
-        playerRef.current.y = GROUND_Y - CRAB_HEIGHT - 15; // Raised slightly to avoid "sinking"
-        playerRef.current.vy = 0;
-        playerRef.current.jumps = 0; // Reset double jump
+        playerRef.current.y = GROUND_Y - CRAB_HEIGHT - 15
+        playerRef.current.vy = 0
+        playerRef.current.jumps = 0
       }
 
-      // 2. Spawn & Move Obstacles (Infinite Runner Logic)
-      obstacleTimerRef.current++;
-      const spawnRate = Math.max(10, 60 - (score / 20)); // Spawns even faster for more action
-      
-      if (obstacleTimerRef.current > spawnRate) {
-        let type = 'LIXO'
-        let yPos = GROUND_Y - 30
-        const rand = Math.random()
-        
-        // Only spawn Roots now as requested
-        type = 'RAIZ'
-        yPos = GROUND_Y - 75 
-
-        // Group Spawn Logic: Max 2 roots as requested
-        const groupSize = Math.random() > 0.7 ? 2 : 1;
-        const newGroup = [];
+      // Spawn Obstacles
+      obstacleTimerRef.current++
+      if (obstacleTimerRef.current > nextObstacleTargetRef.current) {
+        const groupSize = Math.random() > 0.85 ? 2 : 1 
+        const newGroup = []
+        let currentX = 1200 + Math.random() * 300 // Randomized starting X
         
         for (let i = 0; i < groupSize; i++) {
           newGroup.push({
-            id: Date.now() + Math.random(), // Guaranteed unique
-            x: 1000 + (i * 250), // Increased spacing for "landing room"
-            y: yPos,
-            type: type,
-            width: type === 'RAIZ' ? 80 : 50,
-            height: type === 'RAIZ' ? 80 : 50,
-            speed: worldSpeed 
-          });
+            id: Date.now() + Math.random(),
+            x: currentX,
+            y: GROUND_Y - 75 + (Math.random() * 10 - 5), // Subtle natural height variance
+            type: 'RAIZ',
+            width: 80,
+            height: 80,
+            speed: worldSpeed
+          })
+          currentX += (350 + Math.random() * 250) // Guaranteed gap between group members
         }
-
-        setObstacles(prev => [...prev, ...newGroup]);
-        obstacleTimerRef.current = 0;
+        
+        setObstacles(prev => [...prev, ...newGroup])
+        obstacleTimerRef.current = 0
+        
+        // Calculate next target with high variance
+        const baseRate = Math.max(40, 110 - (score / 12)) // More breathing room
+        const variance = Math.random() * 80
+        nextObstacleTargetRef.current = baseRate + variance
       }
 
-      // 3. Spawn Collectibles
-      collectibleTimerRef.current++;
+      // Spawn Collectibles
+      collectibleTimerRef.current++
       if (collectibleTimerRef.current > 150) {
         setCollectibles(prev => [...prev, {
           id: Date.now(),
           x: 1200,
-          y: GROUND_Y - 60 // Low and reachable
+          y: GROUND_Y - 60
         }])
         collectibleTimerRef.current = 0
       }
 
-      // 4. Update Game State
+      // Update Obstacles
       setObstacles(prev => {
         const updated = prev.map(o => ({ ...o, x: o.x - worldSpeed }))
           .filter(o => {
-            // Center the hitbox on the crab (Crab is 80px wide)
             const hitBoxX = playerRef.current.x + 10
             const hitBoxWidth = isAttacking ? 110 : 60
-
-            // NEW TIGHT HITBOX (Fairness for the Roots)
-            const obHitX = o.type === 'RAIZ' ? o.x + 25 : o.x + 5;
-            const obHitW = o.type === 'RAIZ' ? 30 : 40;
-            const obHitY = o.type === 'RAIZ' ? o.y + 30 : o.y + 10;
-            const obHitH = o.type === 'RAIZ' ? 50 : 40;
-
+            const obHitX = o.x + 25
+            const obHitW = 30
+            const obHitY = o.y + 30
+            const obHitH = 50
             const isColliding = (
               hitBoxX < obHitX + obHitW &&
               hitBoxX + hitBoxWidth > obHitX &&
               playerRef.current.y + 15 < obHitY + obHitH &&
               playerRef.current.y + 65 > obHitY
             )
-
-
             if (isColliding) {
               if (isAttacking) {
-                // Destroy obstacle
                 setScore(s => s + 50)
-                playSound(150, 'sawtooth', 0.1); // Hit/Break sound
-                return false // Remove obstacle
+                playSound(150, 'sawtooth', 0.1)
+                return false
               } else if (!isInvincible && !isDashing) {
                 handleDamage()
-                return false // Obstacle breaks after hitting you too
+                return false
               }
             }
             return o.x > -100
@@ -211,8 +189,7 @@ const Game = ({ onGameOver, score, setScore }) => {
         return updated
       })
 
-
-
+      // Update Collectibles
       setCollectibles(prev => {
         const updated = prev.map(c => ({ ...c, x: c.x - worldSpeed }))
           .filter(c => {
@@ -228,61 +205,40 @@ const Game = ({ onGameOver, score, setScore }) => {
         return updated
       })
 
-      // Score increases automatically as you "run"
-      setScore(s => s + (worldSpeed / 10));
-
+      setScore(s => s + (worldSpeed / 10))
       setPlayerPosition({ x: playerRef.current.x, y: playerRef.current.y })
-      
-      // Spawn Dust Particles
-      if (Math.random() > 0.7) {
-        setDustParticles(prev => [...prev.slice(-20), {
-          id: Date.now() + Math.random(),
-          x: playerRef.current.x + 20,
-          y: playerRef.current.y + 60
-        }]);
-      }
-      if (Math.random() > 0.8) {
-        setDustParticles(prev => [...prev.slice(-20), {
-          id: Date.now() + Math.random(),
-          x: chefX + 60,
-          y: GROUND_Y - 30
-        }]);
-      }
-      setDustParticles(prev => prev.filter(p => Date.now() - p.id < 500));
 
-      // Chef/Catcher Chase Logic (BALANCED)
+      // Dust Particles (enhanced — only near ground)
+      const distFromGround = (GROUND_Y - CRAB_HEIGHT) - playerRef.current.y
+      if (distFromGround < 5 && Math.random() > 0.5) {
+        setDustParticles(prev => [...prev.slice(-30), {
+          id: Date.now() + Math.random(),
+          x: playerRef.current.x + Math.random() * 60,
+          y: playerRef.current.y + CRAB_HEIGHT - 5,
+          size: Math.random() * 8 + 4,
+          dx: -(Math.random() * 40 + 20),
+          dy: -(Math.random() * 20 + 5),
+        }])
+      }
+      setDustParticles(prev => prev.filter(p => Date.now() - p.id < 500))
+
+      // Chef Chase Logic
       setChefX(prev => {
-        // Catcher is steady but slightly slower to allow recovery
-        const catcherWorldSpeed = gameSpeed - 0.6; 
-        
-        // Relative speed is how fast he moves on screen based on the difference
-        let relativeSpeed = catcherWorldSpeed - worldSpeed;
-        
-        // If dashing, he falls back even more
-        if (isDashing) relativeSpeed -= 5;
-
-        let nextX = prev + relativeSpeed;
-
-        // Determine animation state based on distance
-        const dist = playerRef.current.x - nextX;
-        let stateIndex = 2; // Run
-        if (dist > 500) stateIndex = 1; // Walk
-        if (dist < 100) stateIndex = 4; // Attack
-        catcherState.current = stateIndex;
-
-        // Hard limits: Keep him visible on screen
-        if (nextX < 50) nextX = 50; 
-
-        // Collision Logic
+        const catcherWorldSpeed = gameSpeed - 0.6
+        let relativeSpeed = catcherWorldSpeed - worldSpeed
+        if (isDashing) relativeSpeed -= 5
+        let nextX = prev + relativeSpeed
+        const dist = playerRef.current.x - nextX
+        catcherState.current = dist > 500 ? 1 : dist < 100 ? 4 : 2
+        if (nextX < 50) nextX = 50
         if (nextX >= playerRef.current.x - 40) {
-          handleDamage();
-          return playerRef.current.x - 400; // Pushed back after hitting you
+          handleDamage()
+          return playerRef.current.x - 400
         }
-        
-        return nextX;
-      });
+        return nextX
+      })
 
-      setGameSpeed(s => Math.min(s + 0.003, 20)) // Balanced acceleration curve
+      setGameSpeed(s => Math.min(s + 0.003, 20))
       animationId = requestAnimationFrame(update)
     }
 
@@ -290,91 +246,111 @@ const Game = ({ onGameOver, score, setScore }) => {
     return () => cancelAnimationFrame(animationId)
   }, [gameSpeed, onGameOver, setScore, score, isInvincible, lives, facing, isDashing])
 
-
   const handleDamage = () => {
     if (isInvincible || isAttacking || isDashing) return
-    
     setLives(prev => {
       const newLives = prev - 1
-      if (newLives <= 0) {
-        onGameOver()
-      }
+      if (newLives <= 0) onGameOver()
       return newLives
     })
-    
     setIsInvincible(true)
     setIsStunned(true)
-    
     setTimeout(() => setIsInvincible(false), 1500)
-    setTimeout(() => setIsStunned(false), 2000) // Stun duration
-
-    // IMPACT: Catcher lunges forward immediately on hit
-    setChefX(prev => Math.min(prev + 100, playerRef.current.x - 80));
+    setTimeout(() => setIsStunned(false), 2000)
+    setChefX(prev => Math.min(prev + 100, playerRef.current.x - 80))
   }
 
   const performJump = () => {
     if (playerRef.current.jumps < 2) {
       playerRef.current.vy = JUMP_FORCE
       playerRef.current.jumps += 1
-      playSound(200 + (playerRef.current.jumps * 50), 'square', 0.2, 600); // Boing effect
+      playSound(200 + (playerRef.current.jumps * 50), 'square', 0.2, 600)
     }
   }
 
   const performAttack = () => {
     setIsAttacking(true)
-    setTimeout(() => setIsAttacking(false), 300) // Attack duration
+    setTimeout(() => setIsAttacking(false), 300)
   }
 
   const performDash = () => {
     if (!canDash) return
-    
-    if (isStunned) setIsStunned(false); // Dashing clears stun
+    if (isStunned) setIsStunned(false)
     setIsDashing(true)
     setCanDash(false)
-    playSound(600, 'sine', 0.2, 200); // Slide-down dash effect
-    
-    // Dash duration
-    setTimeout(() => {
-      setIsDashing(false)
-    }, 200)
-
-    // Dash cooldown
-    setTimeout(() => {
-      setCanDash(true)
-    }, 1000)
+    playSound(600, 'sine', 0.2, 200)
+    setTimeout(() => setIsDashing(false), 200)
+    setTimeout(() => setCanDash(true), 1000)
   }
 
+  // Derived values for visual effects
+  const distFromGround = (GROUND_Y - CRAB_HEIGHT) - playerRef.current.y
+  const isOnGround = distFromGround <= 0
+  const shadowScale = Math.max(0.2, 1 - Math.abs(distFromGround) / 280)
+  const shadowOpacity = Math.max(0.05, 0.5 * shadowScale)  // Catcher state based on distance for the new hooded spritesheet
+  const catcherDist = playerRef.current.x - chefX
+  let catcherRow = 3 // Default RUN
+  let catcherSteps = 8
+  
+  if (catcherDist > 350) {
+    catcherRow = 2 // WALK
+    catcherSteps = 8
+  } else if (catcherDist < 100) {
+    catcherRow = 4 // ATTACK
+    catcherSteps = 6
+  }
+
+  // Parallax offsets
+  const skyOffset   = (score * -0.3) % 1024
+  const treeOffset  = (score * -1.2) % 2048
+  const groundOffset = (score * -6) % 80
 
   return (
     <div className="game-viewport" ref={gameRef}>
-      {/* 1. SCENARIO AREA (Sky, Trees, Action) */}
+
+      {/* ── SCENARIO ── */}
       <div className="scenario-area">
-        {/* Simple Infinite Background */}
-        <div 
-          className="parallax-bg" 
-          style={{ 
-            backgroundPositionX: `${(score * -0.5) % 1024}px`,
-          }} 
+
+        {/* Layer 1: Forest Background */}
+        <div
+          className="parallax-bg"
+          style={{ backgroundPositionX: `${skyOffset}px` }}
         />
-        
+
+        {/* Layer 2: Mangrove Trees */}
+        <div
+          className="parallax-trees"
+          style={{ backgroundPositionX: `${treeOffset}px` }}
+        />
+
+        {/* Layer 3: Atmospheric depth fog */}
+        <div className="depth-fog" />
+
+        {/* Layer 4: God Rays */}
+        <div className="god-rays" />
+
+        {/* Layer 5: Horizon vignette for pseudo-depth */}
+        <div className="horizon-vignette" />
+
+        {/* ── HUD ── */}
         <div className="hud">
           <div className="heart-container">
             {[...Array(3)].map((_, i) => (
               <div key={i} className={`heart-life ${i >= lives ? 'lost' : ''}`} />
             ))}
           </div>
-
           <div className="score-badge">
-            { (score / 1000).toFixed(2) } KM
+            {(score / 1000).toFixed(2)} KM
           </div>
         </div>
 
+        {/* ── ABILITY INDICATORS ── */}
         <div className="abilities-container">
           <div className={`dash-indicator ${!canDash ? 'cooldown' : ''}`}>
             <div className="ability-key">Q</div>
             <div className="ability-info">
               <span className="ability-name">DASH</span>
-              <span className="ability-status">{canDash ? 'PRONTO' : 'RECARREGANDO'}</span>
+              <span className="ability-status">{canDash ? 'PRONTO' : 'RELOAD'}</span>
             </div>
             {!canDash && <div className="cooldown-bar" style={{ animationDuration: '1s' }} />}
           </div>
@@ -382,43 +358,67 @@ const Game = ({ onGameOver, score, setScore }) => {
           <div className="dash-indicator ability-jump">
             <div className="ability-key">W</div>
             <div className="ability-info">
-              <span className="ability-name">PULO DUPLO</span>
+              <span className="ability-name">PULO 2x</span>
               <span className="ability-status">ATIVO</span>
             </div>
           </div>
         </div>
 
+        {/* ── WARNING ── */}
         {showWarning && score < 10 && (
           <div className="warning-indicator">🚨 FUJA DO CATADOR! 🚨</div>
         )}
 
-        {/* Chef Boss Sprite - Full Opaque Clean Sprite */}
-        <div 
-          className="chef-boss" 
-          key={`catcher-${playerRef.current.x - chefX > 350 ? 'walk' : 'run'}`} 
-          style={{ 
-            position: 'absolute', 
-            left: chefX, 
-            top: GROUND_Y - 172, 
-            backgroundImage: 'url("/catador_spritesheet_clean.png")',
+        {/* ── CATCHER BOSS (HOODED CHARACTER) ── */}
+        <div
+          className="chef-boss"
+          style={{
+            position: 'absolute',
+            left: chefX,
+            top: GROUND_Y - 156, 
+            backgroundImage: 'url("/hooded_spritesheet.png")',
+            backgroundSize: '1200px 800px', 
+            backgroundPositionY: `-${catcherRow * 160}px`, 
+            animation: `catcher-run ${Math.max(0.2, 0.8 - (gameSpeed - 5) * 0.05)}s steps(${catcherSteps}) infinite`,
             zIndex: 15,
-            opacity: 1,
-            backgroundSize: '640px 640px',
-            backgroundPositionY: `-${(playerRef.current.x - chefX > 350 ? 0 : playerRef.current.x - chefX < 70 ? 2 : 1) * 160}px`,
-            animation: `catcher-run ${Math.max(0.2, 0.6 - (gameSpeed - 5) * 0.05)}s steps(4) infinite`
-          }} 
+            width: '150px',
+            height: '160px',
+            filter: catcherDist < 200
+              ? `drop-shadow(0 0 ${Math.round((200 - catcherDist) / 10)}px rgba(255,60,60,0.8))`
+              : 'drop-shadow(0 0 4px rgba(255,60,60,0.3))',
+            imageRendering: 'pixelated',
+          }}
         />
 
-        {/* Dust Particles */}
+        {/* ── DUST PARTICLES ── */}
         {dustParticles.map(p => (
-          <div 
-            key={p.id} 
-            className="dust-particle" 
-            style={{ left: p.x, top: p.y }} 
+          <div
+            key={p.id}
+            className="dust-particle"
+            style={{
+              left: p.x,
+              top: p.y,
+              width: p.size || 8,
+              height: p.size || 8,
+            }}
           />
         ))}
 
-        {/* Player: Uçá */}
+        {/* ── SHADOW (2.5D) ── */}
+        <div style={{
+          position: 'absolute',
+          left: playerPosition.x + 10,
+          top: GROUND_Y - CRAB_HEIGHT - 15 + CRAB_HEIGHT - 4,
+          width: `${60 * shadowScale}px`,
+          height: `${10 * shadowScale}px`,
+          marginLeft: `${(60 - 60 * shadowScale) / 2}px`,
+          background: `radial-gradient(ellipse, rgba(0,0,0,${shadowOpacity}) 0%, transparent 80%)`,
+          borderRadius: '50%',
+          zIndex: 8,
+          transformOrigin: 'center',
+          pointerEvents: 'none',
+        }} />
+
         <div style={{
           position: 'absolute',
           left: playerPosition.x,
@@ -426,118 +426,91 @@ const Game = ({ onGameOver, score, setScore }) => {
           width: '80px',
           height: '80px',
           zIndex: 10,
-          opacity: isInvincible ? (Math.sin(Date.now() / 50) > 0 ? 1 : 0.3) : 1,
-          animation: `crab-run-tilt ${Math.max(0.1, 0.4 - (gameSpeed - 5) * 0.03)}s infinite alternate ease-in-out`
+          opacity: isInvincible ? (blinkOn ? 1 : 0.2) : 1,
+          animation: isOnGround
+            ? `crab-run-tilt ${Math.max(0.1, 0.4 - (gameSpeed - 5) * 0.03)}s infinite alternate ease-in-out`
+            : 'none',
+          transform: !isOnGround
+            ? 'scaleX(0.88) scaleY(1.1)'
+            : isDashing ? 'scaleX(1.15) scaleY(0.85)' : 'none',
         }}>
-          <img 
-            src={isAttacking ? "/uca_crab_attack.png" : "/uca_crab.png"} 
+          <img
+            src={isAttacking ? '/uca_crab_attack.png' : '/uca_crab.png'}
             className={`uca-crab ${isAttacking ? 'attacking' : ''} ${isDashing ? 'dashing' : ''} ${isStunned ? 'stunned' : ''}`}
             style={{
               width: '100%',
               height: '100%',
               transform: `scaleX(${facing})`,
-              opacity: isInvincible ? 0.5 : 1,
-              filter: isDashing 
-                ? 'brightness(1.5) contrast(1.2) drop-shadow(0 0 10px white)' 
-                : (isStunned ? 'sepia(1) saturate(2) hue-rotate(-50deg)' : 'none')
-            }} 
+              imageRendering: 'pixelated',
+            }}
             alt="Uçá"
           />
-          
+
           {/* Wind Slash Effect */}
           {isAttacking && (
-            <div 
-              className="slash-effect" 
+            <div
+              className="slash-effect"
               style={{
-                top: '-20px',
-                left: facing === 1 ? '60px' : '-60px',
-                transform: `scaleX(${facing})`
+                top: '-10px',
+                left: facing === 1 ? '65px' : '-65px',
+                transform: `scaleX(${facing})`,
               }}
             />
           )}
-
         </div>
 
+        {/* ── OBSTACLES (Roots) ── */}
+        {obstacles.map(o => (
+          <div key={o.id} style={{
+            position: 'absolute',
+            left: o.x,
+            top: o.y,
+            width: o.width,
+            height: o.height,
+            backgroundImage: 'url("/mangrove_root.png")',
+            backgroundSize: 'contain',
+            backgroundPosition: 'center',
+            backgroundRepeat: 'no-repeat',
+            imageRendering: 'pixelated',
+            zIndex: 9,
+            filter: 'drop-shadow(0 8px 6px rgba(0,0,0,0.5))',
+          }} />
+        ))}
 
-
-        {/* Shadow under the crab - now relative to scenario bottom */}
-        <div style={{
-          position: 'absolute',
-          left: playerPosition.x + 10,
-          bottom: -5,
-          width: '60px',
-          height: '10px',
-          background: 'rgba(0,0,0,0.4)',
-          borderRadius: '50%',
-          zIndex: 2,
-          transform: `scale(${1 - (GROUND_Y - 80 - playerPosition.y) / 200})`
-        }} />
-
-        {/* Obstacles (Now Pixel Art) */}
-        {obstacles.map(o => {
-          let bgPos = '0% 0%'
-          let bgImg = 'url("/items_spritesheet.png")'
-          let bgSize = '300% 300%'
-
-          if (o.type === 'RAIZ') {
-            bgImg = 'url("/mangrove_root.png")'
-            bgSize = 'contain'
-            bgPos = 'center'
-          } else if (o.type === 'PEDRA') {
-            bgPos = '0% 0%'
-          } else if (o.type === 'LIXO') {
-            bgPos = '50% 0%'
-          }
-          
-          return (
-            <div key={o.id} style={{
-              position: 'absolute',
-              left: o.x,
-              top: o.y,
-              width: o.width,
-              height: o.height,
-              backgroundImage: bgImg,
-              backgroundSize: bgSize,
-              backgroundPosition: bgPos,
-              backgroundRepeat: 'no-repeat',
-              imageRendering: 'pixelated',
-              zIndex: 5
-            }} />
-          )
-        })}
-
-        {/* Collectibles (Now Pixel Art) */}
+        {/* ── COLLECTIBLES ── */}
         {collectibles.map(c => (
-          <div 
+          <div
             key={c.id}
             style={{
               position: 'absolute',
               left: c.x,
               top: c.y,
-              width: '60px',
-              height: '60px',
+              width: '55px',
+              height: '55px',
               backgroundImage: 'url("/items_spritesheet.png")',
               backgroundSize: '300% 300%',
-              backgroundPosition: '0% 100%', // Bottom-left: Barco de Fogo
+              backgroundPosition: '0% 100%',
               backgroundRepeat: 'no-repeat',
               imageRendering: 'pixelated',
-              zIndex: 5
+              zIndex: 9,
+              animation: 'collectible-bob 0.8s infinite ease-in-out',
+              filter: 'drop-shadow(0 0 8px rgba(250,204,21,0.8))',
             }}
           />
         ))}
+
       </div>
 
-      {/* 2. GROUND AREA (Solid Mud) */}
-      <div 
+      {/* ── GROUND — 2.5D PERSPECTIVE ── */}
+      <div
         className="ground-area"
-        style={{ 
-          backgroundPositionX: `${(score * -4) % 1024}px` 
+        style={{
+          backgroundPositionX: `${groundOffset}px, ${groundOffset}px, 0`,
         }}
-      >
-      </div>
+      />
+
     </div>
   )
 }
 
 export default Game
-
