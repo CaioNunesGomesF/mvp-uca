@@ -112,8 +112,8 @@ const Game = ({ onGameOver, score, setScore }) => {
       playerRef.current.vy += isTurbo ? GRAVITY * 3 : GRAVITY
       playerRef.current.y += playerRef.current.vy
 
-      if (playerRef.current.y > GROUND_Y - CRAB_HEIGHT) {
-        playerRef.current.y = GROUND_Y - CRAB_HEIGHT - 15
+      if (playerRef.current.y > GROUND_Y - CRAB_HEIGHT + 10) {
+        playerRef.current.y = GROUND_Y - CRAB_HEIGHT + 10
         playerRef.current.vy = 0
         playerRef.current.jumps = 0
       }
@@ -311,26 +311,11 @@ const Game = ({ onGameOver, score, setScore }) => {
       {/* ── SCENARIO ── */}
       <div className="scenario-area">
 
-        {/* Layer 1: Forest Background */}
+        {/* Layer 1: Blue Arcade Background */}
         <div
           className="parallax-bg"
           style={{ backgroundPositionX: `${skyOffset}px` }}
         />
-
-        {/* Layer 2: Mangrove Trees */}
-        <div
-          className="parallax-trees"
-          style={{ backgroundPositionX: `${treeOffset}px` }}
-        />
-
-        {/* Layer 3: Atmospheric depth fog */}
-        <div className="depth-fog" />
-
-        {/* Layer 4: God Rays */}
-        <div className="god-rays" />
-
-        {/* Layer 5: Horizon vignette for pseudo-depth */}
-        <div className="horizon-vignette" />
 
         {/* ── HUD ── */}
         <div className="hud">
@@ -408,7 +393,7 @@ const Game = ({ onGameOver, score, setScore }) => {
         <div style={{
           position: 'absolute',
           left: playerPosition.x + 10,
-          top: GROUND_Y - CRAB_HEIGHT - 15 + CRAB_HEIGHT - 4,
+          top: GROUND_Y - 5,
           width: `${60 * shadowScale}px`,
           height: `${10 * shadowScale}px`,
           marginLeft: `${(60 - 60 * shadowScale) / 2}px`,
