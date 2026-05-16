@@ -1,35 +1,92 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
 const Game = ({ onGameOver, score, setScore }) => {
-  const [playerPosition, setPlayerPosition] = useState({ x: 100, y: 500 })
-  const [isJumping, setIsJumping] = useState(false)
-  const [velocity, setVelocity] = useState({ x: 0, y: 0 })
-  const [obstacles, setObstacles] = useState([])
-  const [collectibles, setCollectibles] = useState([])
-  const [gameSpeed, setGameSpeed] = useState(6)
+  // ── UI STATE (only these trigger React re-renders) ──
   const [lives, setLives] = useState(3)
   const [isInvincible, setIsInvincible] = useState(false)
   const [isAttacking, setIsAttacking] = useState(false)
-  const [facing, setFacing] = useState(1)
-  const [chefX, setChefX] = useState(100)
   const [isDashing, setIsDashing] = useState(false)
   const [canDash, setCanDash] = useState(true)
-  const [isStunned, setIsStunned] = useState(false)
+  const [canAttack, setCanAttack] = useState(true)
   const [showWarning, setShowWarning] = useState(true)
-  const [dustParticles, setDustParticles] = useState([])
   const [blinkOn, setBlinkOn] = useState(true)
+  const blinkRef = useRef(true)  // Ref mirror to avoid stale closure in game loop
+  const audioCtxRef = useRef(null) // Reuse single AudioContext
 
-  // Blink timer for invincibility
+  // ── DOM REFS (direct manipulation — zero React re-renders) ──
+  const gameRef = useRef(null)
+  const playerDomRef = useRef(null)   // the player container div
+  const shadowDomRef = useRef(null)   // the shadow div
+  const chefDomRef = useRef(null)     // the chef div
+  const scoreDomRef = useRef(null)    // the score display
+  const groundDomRef = useRef(null)   // the ground div
+  const skyDomRef = useRef(null)      // the sky/parallax-bg div
+  const treeDomRef = useRef(null)     // the trees/parallax-trees div
+
+  // ── PHYSICS / GAME STATE REFS ──
+  const playerRef = useRef({ x: 600, y: 0, vy: 0, jumps: 0 })
+  const groundYRef = useRef(560) // Default fallback
+  const keys = useRef({})
+  const mousePos = useRef({ x: 0, y: 0 })
+  const obstacleTimerRef = useRef(0)
+  const nextObstacleTargetRef = useRef(80)
+  const collectibleTimerRef = useRef(0)
+  const catcherXRef = useRef(100)
+  const obstaclesRef = useRef([])       // obstacles stored in ref, not state
+  const collectiblesRef = useRef([])
+  const dustRef = useRef([])
+  const scoreRef = useRef(0)
+  const gameSpeedRef = useRef(6)
+  const isStunnedRef = useRef(false)
+  const isInvincibleRef = useRef(false)
+  const livesRef = useRef(3)
+  const currentBiomeRef = useRef('MANGROVE') // 'MANGROVE' or 'CITY'
+
+  // Stable callback refs (never change, so never restart the game loop)
+  const handleDamageRef = useRef(null)
+  const performAttackRef = useRef(null)
+
+  // ── COMBAT REFS ──
+  const isAttackingRef = useRef(false)
+  const canAttackRef = useRef(true)
+  const isDashingRef = useRef(false)
+  const canDashRef = useRef(true)
+  const isDownSlappingRef = useRef(false)
+  const attackAngleRef = useRef(0)
+  const playerScaleRef = useRef({ x: 1, y: 1 })
+  const facingRef = useRef(1)
+
+  // ── OBSTACLE DOM NODES (recycled pool approach) ──
+  const obstacleDomRefs = useRef({})   // map id -> DOM node
+  const collectibleDomRefs = useRef({})
+  const dustDomRefs = useRef({})
+
+  // ── CONSTANTS ──
+  const GRAVITY = 1.2
+  const JUMP_FORCE = -22
+  const GROUND_HEIGHT = 160
+  const CRAB_HEIGHT = 80
+
+  playerRef.current.y = playerRef.current.y || groundYRef.current - CRAB_HEIGHT
+
+  // ── BLINK for invincibility (ref-driven to not affect game loop) ──
   useEffect(() => {
-    if (!isInvincible) { setBlinkOn(true); return }
-    const t = setInterval(() => setBlinkOn(b => !b), 80)
+    if (!isInvincible) { blinkRef.current = true; setBlinkOn(true); return }
+    const t = setInterval(() => {
+      blinkRef.current = !blinkRef.current
+      setBlinkOn(blinkRef.current)
+    }, 80)
     return () => clearInterval(t)
   }, [isInvincible])
 
-  // Enhanced 8-bit Sound Generator
-  const playSound = (freq, type = 'square', duration = 0.1, rampTo = null) => {
+  // ── SOUND ──
+  const playSound = useCallback((freq, type = 'square', duration = 0.1, rampTo = null) => {
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)()
+      }
+      const ctx = audioCtxRef.current
+      if (ctx.state === 'suspended') ctx.resume()
       const osc = ctx.createOscillator()
       const gain = ctx.createGain()
       osc.type = type
@@ -42,280 +99,409 @@ const Game = ({ onGameOver, score, setScore }) => {
       osc.start()
       osc.stop(ctx.currentTime + duration)
     } catch (e) {}
-  }
+  }, [])
 
-  const obstacleTimerRef = useRef(0)
-  const nextObstacleTargetRef = useRef(80) // Initial delay
-  const collectibleTimerRef = useRef(0)
-  const gameRef = useRef(null)
-  const GRAVITY = 1.2
-  const JUMP_FORCE = -22
-  const VIEWPORT_HEIGHT = 720
-  const GROUND_HEIGHT = 90
-  const GROUND_Y = VIEWPORT_HEIGHT - GROUND_HEIGHT
+  // ── ACTIONS ──
+  const performJump = useCallback(() => {
+    if (playerRef.current.jumps < 2) {
+      playerRef.current.vy = JUMP_FORCE
+      playerRef.current.jumps += 1
+      playerScaleRef.current = { x: 0.8, y: 1.2 }
+      setTimeout(() => { playerScaleRef.current = { x: 1, y: 1 } }, 150)
+      playSound(200 + (playerRef.current.jumps * 50), 'square', 0.2, 600)
+    }
+  }, [playSound])
 
-  const CRAB_HEIGHT = 80
-  const playerRef = useRef({ x: 600, y: GROUND_Y - CRAB_HEIGHT, vy: 0, width: 60, height: 60, facing: 1, jumps: 0 })
-  const keys = useRef({})
-  const catcherState = useRef(0)
+  const performAttack = useCallback((angle = 0) => {
+    if (isAttackingRef.current || !canAttackRef.current) return
+    isAttackingRef.current = true
+    canAttackRef.current = false
+    attackAngleRef.current = angle
+    setIsAttacking(true)
+    setCanAttack(false)
 
-  // Handle Controls
+    const inAir = playerRef.current.y < groundYRef.current - CRAB_HEIGHT
+    if (inAir && angle > 45 && angle < 135) {
+      isDownSlappingRef.current = true
+    }
+    playSound(150, 'sawtooth', 0.1, 300)
+    setTimeout(() => {
+      isAttackingRef.current = false
+      isDownSlappingRef.current = false
+      setIsAttacking(false)
+    }, 500)
+    setTimeout(() => {
+      canAttackRef.current = true
+      setCanAttack(true)
+    }, 1000)
+  }, [playSound, CRAB_HEIGHT])
+
+  const performDash = useCallback(() => {
+    if (!canDashRef.current) return
+    isStunnedRef.current = false
+    isDashingRef.current = true
+    canDashRef.current = false
+    setIsDashing(true)
+    setCanDash(false)
+    playSound(600, 'sine', 0.2, 200)
+    setTimeout(() => { isDashingRef.current = false; setIsDashing(false) }, 200)
+    setTimeout(() => { canDashRef.current = true; setCanDash(true) }, 1000)
+  }, [playSound])
+
+  const handleDamage = useCallback(() => {
+    if (isInvincibleRef.current || isDashingRef.current) return
+    livesRef.current -= 1
+    setLives(livesRef.current)
+    if (livesRef.current <= 0) { onGameOver(scoreRef.current); return }
+    isInvincibleRef.current = true
+    isStunnedRef.current = true
+    setIsInvincible(true)
+    setTimeout(() => { isInvincibleRef.current = false; setIsInvincible(false) }, 1500)
+    setTimeout(() => { isStunnedRef.current = false }, 2000)
+    // No more instant teleport! Just a tiny nudge.
+    catcherXRef.current += 20
+  }, [onGameOver])
+
+  // Keep refs always up-to-date so game loop uses latest version without restarting
+  handleDamageRef.current = handleDamage
+  performAttackRef.current = performAttack
+
+  // ── CONTROLS ──
   useEffect(() => {
     const handleKeyDown = (e) => {
       keys.current[e.code] = true
-      if (['Space', 'KeyW', 'ArrowUp'].includes(e.code)) {
-        e.preventDefault()
-        performJump()
-      }
-      if (e.code === 'KeyQ' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
-        e.preventDefault()
-        performDash()
-      }
+      if (['Space', 'KeyW', 'ArrowUp'].includes(e.code)) { e.preventDefault(); performJump() }
+      if (['KeyQ', 'ShiftLeft', 'ShiftRight'].includes(e.code)) { e.preventDefault(); performDash() }
     }
-    const handleKeyUp = (e) => (keys.current[e.code] = false)
+    const handleKeyUp = (e) => { keys.current[e.code] = false }
     const handleMouseDown = (e) => {
-      if (e.target.tagName !== 'BUTTON') performAttack()
+      if (e.target.tagName === 'BUTTON') return
+      const rect = gameRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const px = rect.left + playerRef.current.x + 40
+      const py = rect.top + playerRef.current.y + 40
+      const angle = Math.atan2(e.clientY - py, e.clientX - px) * (180 / Math.PI)
+      performAttack(angle)
     }
+    const handleMouseMove = (e) => { mousePos.current = { x: e.clientX, y: e.clientY } }
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('keyup', handleKeyUp)
     window.addEventListener('mousedown', handleMouseDown)
+    window.addEventListener('mousemove', handleMouseMove)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
       window.removeEventListener('mousedown', handleMouseDown)
+      window.removeEventListener('mousemove', handleMouseMove)
     }
-  }, [canDash, isDashing, facing])
+  }, [performJump, performAttack, performDash])
 
   useEffect(() => {
+    const updateDimensions = () => {
+      if (gameRef.current) {
+        const height = gameRef.current.clientHeight
+        groundYRef.current = height - GROUND_HEIGHT
+        if (playerRef.current.y === 0) {
+          playerRef.current.y = groundYRef.current - CRAB_HEIGHT
+        }
+      }
+    }
+    updateDimensions()
+    window.addEventListener('resize', updateDimensions)
     const timer = setTimeout(() => setShowWarning(false), 3000)
-    return () => clearTimeout(timer)
+    return () => {
+      window.removeEventListener('resize', updateDimensions)
+      clearTimeout(timer)
+    }
   }, [])
 
-  // Game Loop
+  // ── MAIN GAME LOOP ──
   useEffect(() => {
     let animationId
+    let frameCount = 0
+
+    // Reset styles on mount/restart
+    currentBiomeRef.current = 'MANGROVE'
+    if (skyDomRef.current) {
+      skyDomRef.current.style.backgroundImage = "url('/mangrove_bg_new.png')"
+      skyDomRef.current.style.backgroundSize = "1024px 200%"
+      skyDomRef.current.style.backgroundPositionY = "0%"
+      skyDomRef.current.style.filter = "brightness(1.35) contrast(1.1)"
+    }
+    if (treeDomRef.current) {
+      treeDomRef.current.style.display = "block"
+    }
+    if (groundDomRef.current) {
+      groundDomRef.current.style.backgroundImage = `
+        linear-gradient(to bottom, #3aff7a 0%, #3aff7a 4px, transparent 4px),
+        linear-gradient(to bottom, rgba(255,255,255,0.05) 0%, transparent 40%),
+        url('/ground.png')
+      `
+      groundDomRef.current.style.boxShadow = "0 -5px 25px rgba(58, 255, 122, 0.2)"
+    }
 
     const update = () => {
-      const fixedX = 600
-      playerRef.current.x = fixedX
-      playerRef.current.facing = 1
-      setFacing(1)
+      frameCount++
+      const gs = gameSpeedRef.current
+      let speedMod = isDashingRef.current ? 15 : isStunnedRef.current ? -gs * 0.5 : 0
+      const worldSpeed = Math.max(1.5, gs + speedMod)
 
-      let speedMod = 0
-      if (isDashing) speedMod = 15
-      if (isStunned) speedMod = -gameSpeed * 0.5
-      const worldSpeed = Math.max(1.5, gameSpeed + speedMod)
+      // Keyboard attack
+      if (keys.current['KeyJ'] && !isAttackingRef.current) {
+        let angle = 0
+        if (keys.current['ArrowUp'] || keys.current['KeyW']) angle = -90
+        else if (keys.current['ArrowDown'] || keys.current['KeyS']) angle = 90
+        else if (keys.current['ArrowLeft'] || keys.current['KeyA']) angle = 180
+        performAttack(angle)
+      }
 
-      if (keys.current['KeyJ'] && !isAttacking) performAttack()
+      // Turbo / down slap
+      const isTurbo = keys.current['KeyS'] || keys.current['ArrowDown']
+      const inAir = playerRef.current.y < groundYRef.current - CRAB_HEIGHT
+      if (isTurbo && inAir && !isDownSlappingRef.current) {
+        isDownSlappingRef.current = true
+        playSound(150, 'triangle', 0.1, 50)
+      }
 
-      const isTurbo = keys.current['KeyS']
-      playerRef.current.vy += isTurbo ? GRAVITY * 3 : GRAVITY
+      // Physics
+      playerRef.current.vy += isTurbo ? GRAVITY * 3.5 : GRAVITY
       playerRef.current.y += playerRef.current.vy
 
-      if (playerRef.current.y > GROUND_Y - CRAB_HEIGHT + 10) {
-        playerRef.current.y = GROUND_Y - CRAB_HEIGHT + 10
+      const isOnGround = playerRef.current.y >= groundYRef.current - CRAB_HEIGHT - 2
+      if (isOnGround) {
+        playerRef.current.y = groundYRef.current - CRAB_HEIGHT
         playerRef.current.vy = 0
         playerRef.current.jumps = 0
+        if (isDownSlappingRef.current) isDownSlappingRef.current = false
       }
 
-      // Spawn Obstacles
+      // ── BIOME TRANSITION (Trigger at 2km) ──
+      if (scoreRef.current >= 2000 && currentBiomeRef.current === 'MANGROVE') {
+        currentBiomeRef.current = 'CITY'
+        if (skyDomRef.current) {
+          skyDomRef.current.style.backgroundImage = "url('/calcadao_bg.png')"
+          skyDomRef.current.style.backgroundSize = "1024px 200%"
+          skyDomRef.current.style.backgroundPositionY = "100%" // Focus on the city panel
+          skyDomRef.current.style.filter = "brightness(1.1) contrast(1.1)"
+        }
+        if (treeDomRef.current) {
+          treeDomRef.current.style.display = "none" // City BG has trees already or clean look
+        }
+        if (groundDomRef.current) {
+          groundDomRef.current.style.backgroundImage = `
+            linear-gradient(to bottom, #ffffff 0%, #ffffff 3px, transparent 3px),
+            linear-gradient(to bottom, rgba(255,255,255,0.05) 0%, transparent 40%),
+            url('/city_ground.png')
+          `
+          groundDomRef.current.style.boxShadow = "0 -5px 25px rgba(255, 255, 255, 0.2)"
+        }
+      }
+
+      // ── OBSTACLES: mutate in-place to avoid GC pressure ──
       obstacleTimerRef.current++
       if (obstacleTimerRef.current > nextObstacleTargetRef.current) {
-        const groupSize = Math.random() > 0.85 ? 2 : 1 
-        const newGroup = []
-        let currentX = 1200 + Math.random() * 300 // Randomized starting X
-        
+        const groupSize = Math.random() > 0.85 ? 2 : 1
+        let currentX = 1200 + Math.random() * 300
         for (let i = 0; i < groupSize; i++) {
-          newGroup.push({
-            id: Date.now() + Math.random(),
+          obstaclesRef.current.push({
+            id: `o${Date.now()}${Math.random()}`,
             x: currentX,
-            y: GROUND_Y - 75 + (Math.random() * 10 - 5), // Subtle natural height variance
-            type: 'RAIZ',
-            width: 80,
-            height: 80,
-            speed: worldSpeed
+            y: groundYRef.current - 75 + (Math.random() * 10 - 5),
+            width: 80, height: 80,
           })
-          currentX += (350 + Math.random() * 250) // Guaranteed gap between group members
+          currentX += 350 + Math.random() * 250
         }
-        
-        setObstacles(prev => [...prev, ...newGroup])
         obstacleTimerRef.current = 0
-        
-        // Calculate next target with high variance
-        const baseRate = Math.max(40, 110 - (score / 12)) // More breathing room
-        const variance = Math.random() * 80
-        nextObstacleTargetRef.current = baseRate + variance
+        const baseRate = Math.max(40, 110 - (scoreRef.current / 12))
+        nextObstacleTargetRef.current = baseRate + Math.random() * 80
       }
 
-      // Spawn Collectibles
+      const toRemoveObs = []
+      for (let i = 0; i < obstaclesRef.current.length; i++) {
+        const o = obstaclesRef.current[i]
+        o.x -= worldSpeed  // mutate in place — no new object!
+        const hitBoxX = playerRef.current.x + 10
+        const hitBoxWidth = isAttackingRef.current ? 110 : 60
+        const isColliding = (
+          hitBoxX < o.x + 55 && hitBoxX + hitBoxWidth > o.x + 25 &&
+          playerRef.current.y + 15 < o.y + 80 &&
+          playerRef.current.y + (isDownSlappingRef.current ? 90 : 65) > o.y + 30
+        )
+        let remove = o.x < -100
+        if (isColliding) {
+          if (isDownSlappingRef.current) {
+            playerRef.current.vy = JUMP_FORCE * 0.8
+            playerRef.current.jumps = 1
+            scoreRef.current += 100
+            gameSpeedRef.current = Math.min(gameSpeedRef.current + 0.2, 25)
+            playSound(400, 'square', 0.15, 800)
+            isDownSlappingRef.current = false
+            remove = true
+          } else if (!isInvincibleRef.current && !isDashingRef.current) {
+            handleDamageRef.current()
+            remove = false // Obstáculo continua na tela!
+          }
+        }
+        if (remove) toRemoveObs.push(i)
+      }
+      for (let i = toRemoveObs.length - 1; i >= 0; i--) {
+        obstaclesRef.current.splice(toRemoveObs[i], 1)
+      }
+
+      // ── COLLECTIBLES: mutate in-place ──
       collectibleTimerRef.current++
       if (collectibleTimerRef.current > 150) {
-        setCollectibles(prev => [...prev, {
-          id: Date.now(),
-          x: 1200,
-          y: GROUND_Y - 60
-        }])
+        collectiblesRef.current.push({ id: `c${Date.now()}`, x: 1200, y: groundYRef.current - 60 })
         collectibleTimerRef.current = 0
       }
-
-      // Update Obstacles
-      setObstacles(prev => {
-        const updated = prev.map(o => ({ ...o, x: o.x - worldSpeed }))
-          .filter(o => {
-            const hitBoxX = playerRef.current.x + 10
-            const hitBoxWidth = isAttacking ? 110 : 60
-            const obHitX = o.x + 25
-            const obHitW = 30
-            const obHitY = o.y + 30
-            const obHitH = 50
-            const isColliding = (
-              hitBoxX < obHitX + obHitW &&
-              hitBoxX + hitBoxWidth > obHitX &&
-              playerRef.current.y + 15 < obHitY + obHitH &&
-              playerRef.current.y + 65 > obHitY
-            )
-            if (isColliding) {
-              if (isAttacking) {
-                setScore(s => s + 50)
-                playSound(150, 'sawtooth', 0.1)
-                return false
-              } else if (!isInvincible && !isDashing) {
-                handleDamage()
-                return false
-              }
-            }
-            return o.x > -100
-          })
-        return updated
-      })
-
-      // Update Collectibles
-      setCollectibles(prev => {
-        const updated = prev.map(c => ({ ...c, x: c.x - worldSpeed }))
-          .filter(c => {
-            const collected = (
-              playerRef.current.x < c.x + 40 &&
-              playerRef.current.x + 70 > c.x &&
-              playerRef.current.y < c.y + 40 &&
-              playerRef.current.y + 70 > c.y
-            )
-            if (collected) setScore(s => s + 10)
-            return c.x > -100 && !collected
-          })
-        return updated
-      })
-
-      setScore(s => s + (worldSpeed / 10))
-      setPlayerPosition({ x: playerRef.current.x, y: playerRef.current.y })
-
-      // Dust Particles (enhanced — only near ground)
-      const distFromGround = (GROUND_Y - CRAB_HEIGHT) - playerRef.current.y
-      if (distFromGround < 5 && Math.random() > 0.5) {
-        setDustParticles(prev => [...prev.slice(-30), {
-          id: Date.now() + Math.random(),
-          x: playerRef.current.x + Math.random() * 60,
-          y: playerRef.current.y + CRAB_HEIGHT - 5,
-          size: Math.random() * 8 + 4,
-          dx: -(Math.random() * 40 + 20),
-          dy: -(Math.random() * 20 + 5),
-        }])
-      }
-      setDustParticles(prev => prev.filter(p => Date.now() - p.id < 500))
-
-      // Chef Chase Logic
-      setChefX(prev => {
-        const catcherWorldSpeed = gameSpeed - 0.6
-        let relativeSpeed = catcherWorldSpeed - worldSpeed
-        if (isDashing) relativeSpeed -= 5
-        let nextX = prev + relativeSpeed
-        const dist = playerRef.current.x - nextX
-        catcherState.current = dist > 500 ? 1 : dist < 100 ? 4 : 2
-        if (nextX < 50) nextX = 50
-        if (nextX >= playerRef.current.x - 40) {
-          handleDamage()
-          return playerRef.current.x - 400
+      const toRemoveCol = []
+      for (let i = 0; i < collectiblesRef.current.length; i++) {
+        const c = collectiblesRef.current[i]
+        c.x -= worldSpeed  // mutate in place!
+        const collected = (
+          playerRef.current.x < c.x + 40 && playerRef.current.x + 70 > c.x &&
+          playerRef.current.y < c.y + 40 && playerRef.current.y + 70 > c.y
+        )
+        if (c.x < -100 || collected) {
+          if (collected) { scoreRef.current += 10; playSound(800, 'sine', 0.1) }
+          toRemoveCol.push(i)
         }
-        return nextX
-      })
+      }
+      for (let i = toRemoveCol.length - 1; i >= 0; i--) {
+        collectiblesRef.current.splice(toRemoveCol[i], 1)
+      }
 
-      setGameSpeed(s => Math.min(s + 0.003, 20))
+      // ── CHEF ──
+      const catcherWorldSpeed = gs - 0.6
+      let relSpeed = catcherWorldSpeed - worldSpeed
+      if (isDashingRef.current) relSpeed -= 5
+      
+      // Smooth approach if player is stunned (just took damage)
+      const stunBoost = isStunnedRef.current ? 3.5 : 0
+      
+      catcherXRef.current = Math.max(50, catcherXRef.current + relSpeed + stunBoost)
+      
+      // Don't let chef overlap player's center
+      if (catcherXRef.current > playerRef.current.x - 60) {
+        catcherXRef.current = playerRef.current.x - 60
+      }
+      if (catcherXRef.current >= playerRef.current.x - 40) {
+        handleDamage()
+        catcherXRef.current = playerRef.current.x - 400
+      }
+
+      // Score accumulation
+      scoreRef.current += worldSpeed / 10
+      gameSpeedRef.current = Math.min(gameSpeedRef.current + 0.003, 20)
+
+      // ── DOM UPDATES (direct — no React setState) ──
+      const px = playerRef.current.x
+      const py = playerRef.current.y
+      const zH = (groundYRef.current - CRAB_HEIGHT) - py
+      const sf = Math.max(0.5, Math.min(1.0, 1.0 - (Math.abs(zH) / 300)))
+
+      if (playerDomRef.current) {
+        const gs2 = gameSpeedRef.current
+        const scale = playerScaleRef.current
+        const dashScale = isDashingRef.current ? 1.2 : 1
+        playerDomRef.current.style.transform = `translate3d(${px}px, ${py}px, 0) scaleX(${scale.x * dashScale}) scaleY(${scale.y})`
+        playerDomRef.current.style.opacity = isInvincibleRef.current ? (blinkRef.current ? 1 : 0.2) : 1
+        const spriteSub = playerDomRef.current.firstChild
+        if (spriteSub) {
+          spriteSub.style.transform = `scaleX(${facingRef.current}) ${isDownSlappingRef.current ? 'rotate(180deg)' : ''}`
+        }
+      }
+
+      if (shadowDomRef.current) {
+        shadowDomRef.current.style.transform = `translate3d(${px + 10}px, ${groundYRef.current - 5}px, 0)`
+        shadowDomRef.current.style.width = `${60 * sf}px`
+        shadowDomRef.current.style.height = `${10 * sf}px`
+        shadowDomRef.current.style.opacity = sf * 0.5
+      }
+
+      if (chefDomRef.current) {
+        chefDomRef.current.style.transform = `translate3d(${catcherXRef.current}px, ${groundYRef.current - 156}px, 0)`
+      }
+
+      // Obstacles DOM sync (throttled to every 2 frames)
+      if (frameCount % 2 === 0) {
+        const obScene = gameRef.current?.querySelector('.scenario-area')
+        const obsImg = currentBiomeRef.current === 'CITY' ? '/car_obstacle.png' : '/mangrove_root.png'
+        const obsSize = currentBiomeRef.current === 'CITY' ? '85px' : '80px'
+        obstaclesRef.current.forEach(o => {
+          let el = obstacleDomRefs.current[o.id]
+          if (!el && obScene) {
+            el = document.createElement('div')
+            el.style.cssText = `position:absolute;width:${obsSize};height:${obsSize};background-image:url('${obsImg}');background-size:contain;background-position:center;background-repeat:no-repeat;image-rendering:pixelated;z-index:9;will-change:transform;`
+            obScene.appendChild(el)
+            obstacleDomRefs.current[o.id] = el
+          }
+          if (el) el.style.transform = `translate3d(${o.x}px, ${o.y}px, 0)`
+        })
+        Object.keys(obstacleDomRefs.current).forEach(id => {
+          if (!obstaclesRef.current.find(o => o.id === id)) {
+            obstacleDomRefs.current[id]?.remove()
+            delete obstacleDomRefs.current[id]
+          }
+        })
+
+        collectiblesRef.current.forEach(c => {
+          let el = collectibleDomRefs.current[c.id]
+          if (!el && obScene) {
+            el = document.createElement('div')
+            el.style.cssText = `position:absolute;width:55px;height:55px;background-image:url('/items_spritesheet.png');background-size:300% 300%;background-position:0% 100%;background-repeat:no-repeat;image-rendering:pixelated;z-index:9;animation:collectible-bob 0.8s infinite ease-in-out;will-change:transform;`
+            obScene.appendChild(el)
+            collectibleDomRefs.current[c.id] = el
+          }
+          if (el) el.style.transform = `translate3d(${c.x}px, ${c.y}px, 0)`
+        })
+        Object.keys(collectibleDomRefs.current).forEach(id => {
+          if (!collectiblesRef.current.find(c => c.id === id)) {
+            collectibleDomRefs.current[id]?.remove()
+            delete collectibleDomRefs.current[id]
+          }
+        })
+      }
+
+      // Score UI (throttled to every 6 frames = 10x/sec)
+      if (frameCount % 6 === 0 && scoreDomRef.current) {
+        scoreDomRef.current.textContent = `${(scoreRef.current / 1000).toFixed(2)} KM`
+      }
+
+      // Ground parallax (throttled)
+      if (frameCount % 2 === 0) {
+        if (groundDomRef.current) {
+          const groundOffset = (scoreRef.current * -6) % 200
+          groundDomRef.current.style.backgroundPositionX = `0, 0, ${groundOffset}px`
+        }
+        // SCENERY PARALLAX
+        const skyOffset = (scoreRef.current * -0.3) % 1024
+        const treeOffset = (scoreRef.current * -1.2) % 1024
+        if (skyDomRef.current) skyDomRef.current.style.backgroundPositionX = `${skyOffset}px`
+        if (treeDomRef.current) treeDomRef.current.style.backgroundPositionX = `${treeOffset}px`
+      }
+
       animationId = requestAnimationFrame(update)
     }
 
     animationId = requestAnimationFrame(update)
-    return () => cancelAnimationFrame(animationId)
-  }, [gameSpeed, onGameOver, setScore, score, isInvincible, lives, facing, isDashing])
-
-  const handleDamage = () => {
-    if (isInvincible || isAttacking || isDashing) return
-    setLives(prev => {
-      const newLives = prev - 1
-      if (newLives <= 0) onGameOver()
-      return newLives
-    })
-    setIsInvincible(true)
-    setIsStunned(true)
-    setTimeout(() => setIsInvincible(false), 1500)
-    setTimeout(() => setIsStunned(false), 2000)
-    setChefX(prev => Math.min(prev + 100, playerRef.current.x - 80))
-  }
-
-  const performJump = () => {
-    if (playerRef.current.jumps < 2) {
-      playerRef.current.vy = JUMP_FORCE
-      playerRef.current.jumps += 1
-      playSound(200 + (playerRef.current.jumps * 50), 'square', 0.2, 600)
+    return () => {
+      cancelAnimationFrame(animationId)
+      // Cleanup DOM nodes
+      Object.values(obstacleDomRefs.current).forEach(el => el?.remove())
+      Object.values(collectibleDomRefs.current).forEach(el => el?.remove())
+      obstacleDomRefs.current = {}
+      collectibleDomRefs.current = {}
     }
-  }
-
-  const performAttack = () => {
-    setIsAttacking(true)
-    setTimeout(() => setIsAttacking(false), 300)
-  }
-
-  const performDash = () => {
-    if (!canDash) return
-    if (isStunned) setIsStunned(false)
-    setIsDashing(true)
-    setCanDash(false)
-    playSound(600, 'sine', 0.2, 200)
-    setTimeout(() => setIsDashing(false), 200)
-    setTimeout(() => setCanDash(true), 1000)
-  }
-
-  // Derived values for visual effects
-  const distFromGround = (GROUND_Y - CRAB_HEIGHT) - playerRef.current.y
-  const isOnGround = distFromGround <= 0
-  const shadowScale = Math.max(0.2, 1 - Math.abs(distFromGround) / 280)
-  const shadowOpacity = Math.max(0.05, 0.5 * shadowScale)  // Catcher state based on distance for the new hooded spritesheet
-  const catcherDist = playerRef.current.x - chefX
-  let catcherRow = 3 // Default RUN
-  let catcherSteps = 8
-  
-  if (catcherDist > 350) {
-    catcherRow = 2 // WALK
-    catcherSteps = 8
-  } else if (catcherDist < 100) {
-    catcherRow = 4 // ATTACK
-    catcherSteps = 6
-  }
-
-  // Parallax offsets
-  const skyOffset   = (score * -0.3) % 1024
-  const treeOffset  = (score * -1.2) % 2048
-  const groundOffset = (score * -6) % 80
+  }, [onGameOver, playSound]) // minimal deps — stable via refs
 
   return (
     <div className="game-viewport" ref={gameRef}>
-
-      {/* ── SCENARIO ── */}
       <div className="scenario-area">
-
-        {/* Layer 1: Blue Arcade Background */}
-        <div
-          className="parallax-bg"
-          style={{ backgroundPositionX: `${skyOffset}px` }}
-        />
+        {/* Layer 1: Sky/Stars */}
+        <div className="parallax-bg" ref={skyDomRef} />
+        {/* Layer 2: Trees */}
+        <div className="parallax-trees" ref={treeDomRef} />
 
         {/* ── HUD ── */}
         <div className="hud">
@@ -324,13 +510,20 @@ const Game = ({ onGameOver, score, setScore }) => {
               <div key={i} className={`heart-life ${i >= lives ? 'lost' : ''}`} />
             ))}
           </div>
-          <div className="score-badge">
-            {(score / 1000).toFixed(2)} KM
-          </div>
+          <div className="score-badge" ref={scoreDomRef}>0.00 KM</div>
         </div>
 
         {/* ── ABILITY INDICATORS ── */}
         <div className="abilities-container">
+          <div className={`dash-indicator ability-attack ${!canAttack ? 'cooldown' : ''}`}>
+            <div className="ability-key">LMB/J</div>
+            <div className="ability-info">
+              <span className="ability-name">TAPA</span>
+              <span className="ability-status">{canAttack ? 'PRONTO' : 'RELOAD'}</span>
+            </div>
+            {!canAttack && <div className="cooldown-bar" style={{ animationDuration: '1s' }} />}
+          </div>
+
           <div className={`dash-indicator ${!canDash ? 'cooldown' : ''}`}>
             <div className="ability-key">Q</div>
             <div className="ability-info">
@@ -349,151 +542,73 @@ const Game = ({ onGameOver, score, setScore }) => {
           </div>
         </div>
 
-        {/* ── WARNING ── */}
-        {showWarning && score < 10 && (
+        {showWarning && (
           <div className="warning-indicator">🚨 FUJA DO CATADOR! 🚨</div>
         )}
 
-        {/* ── CATCHER BOSS (HOODED CHARACTER) ── */}
+        {/* ── CHEF BOSS (positioned via direct DOM ref) ── */}
         <div
+          ref={chefDomRef}
           className="chef-boss"
           style={{
             position: 'absolute',
-            left: chefX,
-            top: GROUND_Y - 156, 
-            backgroundImage: 'url("/hooded_spritesheet.png")',
-            backgroundSize: '1200px 800px', 
-            backgroundPositionY: `-${catcherRow * 160}px`, 
-            animation: `catcher-run ${Math.max(0.2, 0.8 - (gameSpeed - 5) * 0.05)}s steps(${catcherSteps}) infinite`,
+            backgroundImage: 'url("/chef_strip.png")',
+            backgroundSize: '3360px 100%',
+            backgroundRepeat: 'no-repeat',
+            animation: `catcher-run 0.7s steps(16) infinite`,
             zIndex: 15,
-            width: '150px',
-            height: '160px',
-            filter: catcherDist < 200
-              ? `drop-shadow(0 0 ${Math.round((200 - catcherDist) / 10)}px rgba(255,60,60,0.8))`
-              : 'drop-shadow(0 0 4px rgba(255,60,60,0.3))',
+            width: '210px',
+            height: '190px',
             imageRendering: 'pixelated',
+            willChange: 'transform',
           }}
         />
 
-        {/* ── DUST PARTICLES ── */}
-        {dustParticles.map(p => (
+        {/* ── SHADOW ── */}
+        <div
+          ref={shadowDomRef}
+          style={{
+            position: 'absolute',
+            background: 'radial-gradient(ellipse, rgba(0,0,0,0.4) 0%, transparent 80%)',
+            borderRadius: '50%',
+            zIndex: 8,
+            pointerEvents: 'none',
+            willChange: 'transform, opacity',
+          }}
+        />
+
+        {/* ── PLAYER (positioned via direct DOM ref) ── */}
+        <div
+          ref={playerDomRef}
+          style={{
+            position: 'absolute',
+            width: '80px',
+            height: '80px',
+            zIndex: 10,
+            willChange: 'transform, opacity',
+            transformOrigin: 'bottom center',
+          }}
+        >
           <div
-            key={p.id}
-            className="dust-particle"
-            style={{
-              left: p.x,
-              top: p.y,
-              width: p.size || 8,
-              height: p.size || 8,
-            }}
-          />
-        ))}
-
-        {/* ── SHADOW (2.5D) ── */}
-        <div style={{
-          position: 'absolute',
-          left: playerPosition.x + 10,
-          top: GROUND_Y - 5,
-          width: `${60 * shadowScale}px`,
-          height: `${10 * shadowScale}px`,
-          marginLeft: `${(60 - 60 * shadowScale) / 2}px`,
-          background: `radial-gradient(ellipse, rgba(0,0,0,${shadowOpacity}) 0%, transparent 80%)`,
-          borderRadius: '50%',
-          zIndex: 8,
-          transformOrigin: 'center',
-          pointerEvents: 'none',
-        }} />
-
-        <div style={{
-          position: 'absolute',
-          left: playerPosition.x,
-          top: playerPosition.y,
-          width: '80px',
-          height: '80px',
-          zIndex: 10,
-          opacity: isInvincible ? (blinkOn ? 1 : 0.2) : 1,
-          animation: isOnGround
-            ? `crab-run-tilt ${Math.max(0.1, 0.4 - (gameSpeed - 5) * 0.03)}s infinite alternate ease-in-out`
-            : 'none',
-          transform: !isOnGround
-            ? 'scaleX(0.88) scaleY(1.1)'
-            : isDashing ? 'scaleX(1.15) scaleY(0.85)' : 'none',
-        }}>
-          <img
-            src={isAttacking ? '/uca_crab_attack.png' : '/uca_crab.png'}
-            className={`uca-crab ${isAttacking ? 'attacking' : ''} ${isDashing ? 'dashing' : ''} ${isStunned ? 'stunned' : ''}`}
-            style={{
-              width: '100%',
-              height: '100%',
-              transform: `scaleX(${facing})`,
-              imageRendering: 'pixelated',
-            }}
-            alt="Uçá"
+            className={`uca-crab-sprite walking ${isAttacking ? 'attacking' : ''}`}
+            style={{ width: '100%', height: '100%' }}
           />
 
-          {/* Wind Slash Effect */}
           {isAttacking && (
-            <div
-              className="slash-effect"
-              style={{
-                top: '-10px',
-                left: facing === 1 ? '65px' : '-65px',
-                transform: `scaleX(${facing})`,
-              }}
-            />
+            <div style={{
+              position: 'absolute', left: '40px', top: '40px',
+              transform: `rotate(${attackAngleRef.current}deg)`,
+              pointerEvents: 'none', zIndex: 25
+            }}>
+              <div className="slash-effect" style={{ left: '20px', top: '-50px' }} />
+            </div>
           )}
         </div>
 
-        {/* ── OBSTACLES (Roots) ── */}
-        {obstacles.map(o => (
-          <div key={o.id} style={{
-            position: 'absolute',
-            left: o.x,
-            top: o.y,
-            width: o.width,
-            height: o.height,
-            backgroundImage: 'url("/mangrove_root.png")',
-            backgroundSize: 'contain',
-            backgroundPosition: 'center',
-            backgroundRepeat: 'no-repeat',
-            imageRendering: 'pixelated',
-            zIndex: 9,
-            filter: 'drop-shadow(0 8px 6px rgba(0,0,0,0.5))',
-          }} />
-        ))}
-
-        {/* ── COLLECTIBLES ── */}
-        {collectibles.map(c => (
-          <div
-            key={c.id}
-            style={{
-              position: 'absolute',
-              left: c.x,
-              top: c.y,
-              width: '55px',
-              height: '55px',
-              backgroundImage: 'url("/items_spritesheet.png")',
-              backgroundSize: '300% 300%',
-              backgroundPosition: '0% 100%',
-              backgroundRepeat: 'no-repeat',
-              imageRendering: 'pixelated',
-              zIndex: 9,
-              animation: 'collectible-bob 0.8s infinite ease-in-out',
-              filter: 'drop-shadow(0 0 8px rgba(250,204,21,0.8))',
-            }}
-          />
-        ))}
-
       </div>
 
-      {/* ── GROUND — 2.5D PERSPECTIVE ── */}
-      <div
-        className="ground-area"
-        style={{
-          backgroundPositionX: `${groundOffset}px, ${groundOffset}px, 0`,
-        }}
-      />
-
+      {/* ── GROUND ── */}
+      <div ref={groundDomRef} className="ground-area" />
     </div>
   )
 }

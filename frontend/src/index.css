@@ -34,13 +34,27 @@ body {
 /* ============================================
    PLAYER — UÇÁ CRAB
    ============================================ */
-.uca-crab {
-  transition: transform 0.1s linear;
+.uca-crab-sprite {
+  width: 100%;
+  height: 100%;
+  background-image: url('/crab_strip.png');
+  background-size: 1100% 100%; /* 11 frames */
+  background-repeat: no-repeat;
   image-rendering: pixelated;
+  will-change: transform, background-position;
+}
+
+.uca-crab-sprite.walking {
+  animation: sprite-walk 0.8s steps(11) infinite;
+}
+
+@keyframes sprite-walk {
+  from { background-position: 0% 0; }
+  to { background-position: 100% 0; }
 }
 
 .uca-crab.attacking {
-  animation: pinch 0.2s cubic-bezier(0.17, 0.67, 0.83, 0.67);
+  animation: pinch 0.4s cubic-bezier(0.17, 0.67, 0.83, 0.67);
 }
 
 /* Speed lines trail when dashing */
@@ -65,13 +79,13 @@ body {
   pointer-events: none;
   z-index: 20;
   filter: blur(1px) drop-shadow(0 0 8px #3aff7a);
-  animation: wind-slash 0.2s ease-out forwards;
+  animation: wind-slash 0.5s ease-out forwards;
 }
 
 @keyframes wind-slash {
   0%   { transform: scale(0.4) rotate(-20deg); opacity: 0; }
-  50%  { transform: scale(1.2) rotate(0deg) translateX(30px); opacity: 1; }
-  100% { transform: scale(1.6) rotate(20deg) translateX(50px); opacity: 0; }
+  30%  { transform: scale(1.4) rotate(0deg) translateX(40px); opacity: 1; }
+  100% { transform: scale(1.8) rotate(15deg) translateX(70px); opacity: 0; }
 }
 
 @keyframes pinch {
@@ -90,19 +104,18 @@ body {
    CHEF / CATADOR SPRITE
    ============================================ */
 .chef-boss {
-  width: 160px;
-  height: 160px;
-  background-image: url('/catador_spritesheet_clean.png');
+  width: 210px;
+  height: 190px;
   background-repeat: no-repeat;
   image-rendering: pixelated;
   z-index: 15;
-  /* Red aura when close */
-  filter: drop-shadow(0 0 8px rgba(255, 60, 60, 0.4));
+  filter: drop-shadow(0 0 10px rgba(255, 60, 60, 0.4));
+  will-change: left, background-position;
 }
 
 @keyframes catcher-run {
-  from { background-position-x: 0; }
-  to   { background-position-x: -800px; }
+  from { background-position: 0px 0px; }
+  to   { background-position: -3360px 0px; } /* 16 quadros x 210px */
 }
 
 /* ============================================
@@ -147,15 +160,28 @@ body {
   position: absolute;
   top: 0; left: 0;
   width: 100%; height: 100%;
-  background: 
-    radial-gradient(circle at 50% 100%, #004488 0%, #001a33 100%);
+  background-image: url('/mangrove_bg_new.png');
+  background-size: 1024px 200%;
+  background-position-y: 0%;
+  background-repeat: repeat-x;
   z-index: 1;
+  image-rendering: pixelated;
+  opacity: 1;
+  filter: brightness(1.35) contrast(1.1); /* Brighter! */
 }
 
-/* Trees layer — making it more subtle or using it for foreground trees */
-/* Optional parallax clouds or details could go here, but keeping it clean blue */
 .parallax-trees {
-  display: none; /* Removed for a cleaner blue aesthetic */
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background-image: url('/mangrove_bg_new.png');
+  background-size: 1024px 200%;
+  background-position-y: 100%;
+  background-repeat: repeat-x;
+  z-index: 2;
+  image-rendering: pixelated;
+  opacity: 1;
+  filter: brightness(1.25) contrast(1.1);
 }
 
 
@@ -163,16 +189,19 @@ body {
 .ground-area {
   position: absolute;
   bottom: 0;
-  left: 0;
   width: 100%;
-  height: 90px;
-  /* 2D Platformer Floor Style */
-  background: 
-    linear-gradient(to bottom, #00aaff 0%, #00aaff 6px, #0d1a26 6px, #0d1a26 10px, #050a0f 10px);
-  background-size: 100% 100%;
+  height: 160px;
+  /* Brighter neon moss + mud + subtle ambient glow */
+  background-image: 
+    linear-gradient(to bottom, #3aff7a 0%, #3aff7a 4px, transparent 4px),
+    linear-gradient(to bottom, rgba(255,255,255,0.05) 0%, transparent 40%),
+    url('/ground.png');
+  background-repeat: no-repeat, no-repeat, repeat-x;
+  background-size: 100% 4px, 100% 100%, 200px 160px;
   image-rendering: pixelated;
   z-index: 10;
-  box-shadow: 0 -4px 20px rgba(0, 170, 255, 0.4);
+  box-shadow: 0 -5px 25px rgba(58, 255, 122, 0.2); /* Neon glow instead of black shadow */
+  will-change: background-position;
 }
 
 /* Add a "dirt" pattern to the floor */
@@ -209,8 +238,8 @@ body {
   background: linear-gradient(
     to bottom,
     transparent 0%,
-    rgba(5, 20, 12, 0.2) 50%,
-    rgba(5, 20, 12, 0.65) 100%
+    rgba(5, 20, 12, 0.1) 50%,
+    rgba(5, 20, 12, 0.3) 100%
   );
   z-index: 3;
   pointer-events: none;

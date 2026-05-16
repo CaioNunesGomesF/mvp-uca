@@ -27,6 +27,8 @@ function App() {
 
   const endGame = async (finalScore) => {
     setGameState('GAME_OVER')
+    setScore(finalScore)
+    if (finalScore > highScore) setHighScore(finalScore)
     
     if (user && user.id && user.id !== 'GUEST') {
       try {
@@ -85,7 +87,7 @@ function App() {
       
       {gameState === 'PLAYING' && (
         <Game 
-          onGameOver={() => endGame(score)} 
+          onGameOver={(finalScore) => endGame(finalScore)} 
           score={score} 
           setScore={setScore} 
         />

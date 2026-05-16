@@ -19,7 +19,7 @@
   max-height: 800px;
   position: relative;
   overflow: hidden;
-  background: #020b14;
+  background: #002b55; /* Lightened blue */
   border: 2px solid rgba(80, 200, 120, 0.15);
   border-radius: 8px;
   box-shadow:
@@ -57,31 +57,7 @@
   overflow: hidden;
 }
 
-/* Layer 1 — Forest Background (slowest) */
-.parallax-bg {
-  position: absolute;
-  top: 0; left: 0;
-  width: 100%; height: 100%;
-  background-image: url('/forest_bg.png');
-  background-size: auto 100%;
-  background-repeat: repeat-x;
-  image-rendering: pixelated;
-  z-index: 1;
-}
-
-/* Layer 2 — Mangrove BG (medium) */
-.parallax-trees {
-  position: absolute;
-  bottom: 0; left: 0;
-  width: 100%; height: 80%;
-  background-image: url('/mangrove_bg.png');
-  background-size: auto 100%;
-  background-repeat: repeat-x;
-  background-position-y: bottom;
-  image-rendering: pixelated;
-  z-index: 2;
-  opacity: 0.4;
-}
+/* Scenario Layers (handled in index.css) */
 
 /* Atmospheric fog / depth gradient */
 .depth-fog {
@@ -91,8 +67,8 @@
   background: linear-gradient(
     to bottom,
     transparent 0%,
-    rgba(10, 40, 40, 0.4) 60%,
-    rgba(5, 20, 20, 0.8) 100%
+    rgba(10, 40, 40, 0.15) 60%,
+    rgba(5, 20, 20, 0.3) 100%
   );
   z-index: 3;
   pointer-events: none;

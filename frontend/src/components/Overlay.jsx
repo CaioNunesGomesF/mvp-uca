@@ -59,6 +59,29 @@ const Overlay = ({ type, score, onStart, onRestart, onShowScoreboard, onBack, hi
   return (
     <div className={`overlay-primo ${type.toLowerCase()}`}>
       
+      {type === 'GAME_OVER' && (
+        <video 
+          autoPlay 
+          loop 
+          muted 
+          playsInline 
+          className="gameover-video-bg"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            zIndex: 0,
+            opacity: 0.7,
+            pointerEvents: 'none'
+          }}
+        >
+          <source src="/gameover.mp4" type="video/mp4" />
+        </video>
+      )}
+      
       {/* Dynamic Background Elements */}
       <div className="blobs-container">
         <div className="light-blob b1"></div>
