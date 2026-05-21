@@ -41,6 +41,8 @@ body {
   background-size: 1100% 100%; /* 11 frames */
   background-repeat: no-repeat;
   image-rendering: pixelated;
+  /* Crop 4px from left and right to hide the sprite bleeding "ventinhos" */
+  clip-path: inset(0px 4px);
   will-change: transform, background-position;
 }
 
@@ -154,80 +156,188 @@ body {
 /* ============================================
    PARALLAX LAYERS
    ============================================ */
-/* Base — Forest */
-/* Base — Arcade Night Background */
+
+/* Base — Blue Sky Gradient */
 .parallax-bg {
   position: absolute;
   top: 0; left: 0;
   width: 100%; height: 100%;
-  background-image: url('/mangrove_bg_new.png');
-  background-size: 1024px 200%;
-  background-position-y: 0%;
-  background-repeat: repeat-x;
+  background: linear-gradient(
+    to bottom,
+    #1a6fc4 0%,
+    #2e90f5 25%,
+    #5bb8ff 55%,
+    #a8dcff 80%,
+    #d4efff 100%
+  );
   z-index: 1;
-  image-rendering: pixelated;
-  opacity: 1;
-  filter: brightness(1.35) contrast(1.1); /* Brighter! */
 }
 
 .parallax-trees {
   position: absolute;
-  top: 0; left: 0;
-  width: 100%; height: 100%;
-  background-image: url('/mangrove_bg_new.png');
-  background-size: 1024px 200%;
-  background-position-y: 100%;
+  bottom: 130px; /* Sit right on top of the ground */
+  left: 0;
+  width: 100%;
+  height: 250px; /* Tall enough for skyline */
   background-repeat: repeat-x;
-  z-index: 2;
+  z-index: 3; /* Behind birds/clouds (4), in front of sky (1) */
   image-rendering: pixelated;
-  opacity: 1;
-  filter: brightness(1.25) contrast(1.1);
+  opacity: 0.9;
+  display: none; /* Managed by JS biome transition */
+  will-change: background-position;
+}
+
+/* ============================================
+   CLOUDS
+   ============================================ */
+.sky-cloud {
+  position: absolute;
+  z-index: 4; /* above trees, floats in the sky area */
+  pointer-events: none;
+  will-change: transform;
+  max-height: 45%; /* stay in sky zone */
+}
+
+.sky-cloud::before,
+.sky-cloud::after {
+  content: '';
+  position: absolute;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 50%;
+}
+
+/* Each cloud variant has slightly different shapes */
+.sky-cloud.c1 { width: 130px; height: 45px; top: 8%; animation: cloud-drift 28s linear infinite; }
+.sky-cloud.c2 { width: 90px;  height: 32px; top: 18%; animation: cloud-drift 38s linear infinite; animation-delay: -12s; }
+.sky-cloud.c3 { width: 160px; height: 52px; top: 6%;  animation: cloud-drift 22s linear infinite; animation-delay: -6s; }
+.sky-cloud.c4 { width: 75px;  height: 28px; top: 28%; animation: cloud-drift 45s linear infinite; animation-delay: -20s; }
+.sky-cloud.c5 { width: 110px; height: 38px; top: 14%; animation: cloud-drift 32s linear infinite; animation-delay: -30s; }
+
+.sky-cloud::before {
+  width: 60%; height: 180%;
+  top: -40%; left: 15%;
+}
+.sky-cloud::after {
+  width: 45%; height: 150%;
+  top: -25%; right: 15%;
+  background: rgba(255, 255, 255, 0.80);
+}
+
+/* Main cloud body */
+.sky-cloud .cloud-body {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 50px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+}
+
+@keyframes cloud-drift {
+  from { transform: translateX(110vw); }
+  to   { transform: translateX(-300px); }
+}
+
+/* ============================================
+   BIRDS
+   ============================================ */
+.sky-bird {
+  position: absolute;
+  z-index: 4; /* same layer as clouds, above trees */
+  pointer-events: none;
+  will-change: transform;
+}
+
+.sky-bird .bird-wing {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+
+.sky-bird .wing-l,
+.sky-bird .wing-r {
+  width: 10px;
+  height: 4px;
+  border-top: 2.5px solid rgba(30, 30, 60, 0.75);
+  border-radius: 50% 50% 0 0;
+}
+
+.sky-bird .wing-l { transform: rotate(-10deg); }
+.sky-bird .wing-r { transform: rotate(10deg); }
+
+/* Bird variants — different sizes, speeds, heights */
+.sky-bird.b1 { top: 12%; animation: bird-fly 14s linear infinite,           bird-flap 0.5s ease-in-out infinite alternate; }
+.sky-bird.b2 { top: 20%; animation: bird-fly 20s linear infinite -7s,      bird-flap 0.6s ease-in-out infinite alternate; }
+.sky-bird.b3 { top: 9%;  animation: bird-fly 17s linear infinite -3s,      bird-flap 0.45s ease-in-out infinite alternate; }
+.sky-bird.b4 { top: 25%; animation: bird-fly 24s linear infinite -15s,     bird-flap 0.55s ease-in-out infinite alternate; }
+.sky-bird.b5 { top: 16%; animation: bird-fly 18s linear infinite -10s,     bird-flap 0.5s ease-in-out infinite alternate; }
+/* A little flock */
+.sky-bird.f1 { top: 13%; animation: bird-fly 16s linear infinite -2s,      bird-flap 0.48s ease-in-out infinite alternate; transform: scale(0.7); }
+.sky-bird.f2 { top: 14%; animation: bird-fly 16s linear infinite -2.4s,    bird-flap 0.52s ease-in-out infinite alternate; transform: scale(0.7); }
+.sky-bird.f3 { top: 15%; animation: bird-fly 16s linear infinite -1.8s,    bird-flap 0.50s ease-in-out infinite alternate; transform: scale(0.7); }
+
+@keyframes bird-fly {
+  from { transform: translateX(110vw); }
+  to   { transform: translateX(-80px); }
+}
+
+@keyframes bird-flap {
+  from {
+    clip-path: path('M0,4 Q5,0 10,4');
+  }
+  to {
+    clip-path: path('M0,0 Q5,4 10,0');
+  }
+}
+
+/* Wing flap via transform on individual wings */
+.sky-bird.b1 .wing-l, .sky-bird.f1 .wing-l, .sky-bird.f2 .wing-l, .sky-bird.f3 .wing-l { animation: flap-l 0.5s ease-in-out infinite alternate; }
+.sky-bird.b2 .wing-l { animation: flap-l 0.6s ease-in-out infinite alternate; }
+.sky-bird.b3 .wing-l { animation: flap-l 0.45s ease-in-out infinite alternate; }
+.sky-bird.b4 .wing-l { animation: flap-l 0.55s ease-in-out infinite alternate; }
+.sky-bird.b5 .wing-l { animation: flap-l 0.5s ease-in-out infinite alternate; }
+
+.sky-bird.b1 .wing-r, .sky-bird.f1 .wing-r, .sky-bird.f2 .wing-r, .sky-bird.f3 .wing-r { animation: flap-r 0.5s ease-in-out infinite alternate; }
+.sky-bird.b2 .wing-r { animation: flap-r 0.6s ease-in-out infinite alternate; }
+.sky-bird.b3 .wing-r { animation: flap-r 0.45s ease-in-out infinite alternate; }
+.sky-bird.b4 .wing-r { animation: flap-r 0.55s ease-in-out infinite alternate; }
+.sky-bird.b5 .wing-r { animation: flap-r 0.5s ease-in-out infinite alternate; }
+
+@keyframes flap-l {
+  from { transform: rotate(-10deg) scaleY(1); }
+  to   { transform: rotate(-40deg) scaleY(0.5); }
+}
+@keyframes flap-r {
+  from { transform: rotate(10deg) scaleY(1); }
+  to   { transform: rotate(40deg) scaleY(0.5); }
 }
 
 
 /* Atmospheric depth gradient */
+/* ============================================
+   REALISTIC GROUND
+   ============================================ */
+
+.ground-area::before { content: none; }
+.ground-area::after  { content: none; }
+
 .ground-area {
   position: absolute;
   bottom: 0;
   width: 100%;
-  height: 160px;
-  /* Brighter neon moss + mud + subtle ambient glow */
-  background-image: 
-    linear-gradient(to bottom, #3aff7a 0%, #3aff7a 4px, transparent 4px),
-    linear-gradient(to bottom, rgba(255,255,255,0.05) 0%, transparent 40%),
-    url('/ground.png');
-  background-repeat: no-repeat, no-repeat, repeat-x;
-  background-size: 100% 4px, 100% 100%, 200px 160px;
+  height: 130px;
+
+  background-color: transparent;
+  background-image: url('/ground_pixelart.png');
+  background-repeat: repeat-x;
+  /* Zoom the image and shift it up to hide the checkerboard pattern */
+  background-size: auto 320px;
+  background-position-y: -120px;
   image-rendering: pixelated;
+
   z-index: 10;
-  box-shadow: 0 -5px 25px rgba(58, 255, 122, 0.2); /* Neon glow instead of black shadow */
+  border-top: none;
+  box-shadow: none;
   will-change: background-position;
-}
-
-/* Add a "dirt" pattern to the floor */
-.ground-area::after {
-  content: '';
-  position: absolute;
-  top: 10px; left: 0; right: 0; bottom: 0;
-  background-image: 
-    repeating-linear-gradient(90deg, rgba(255,255,255,0.03) 0, rgba(255,255,255,0.03) 40px, transparent 40px, transparent 80px),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0, rgba(255,255,255,0.03) 20px, transparent 20px, transparent 40px);
-  pointer-events: none;
-}
-
-/* Perspective lines for mossy ground */
-.ground-area::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(
-    90deg,
-    transparent 0px,
-    transparent 100px,
-    rgba(26, 90, 90, 0.1) 100px,
-    rgba(26, 90, 90, 0.1) 101px
-  );
-  pointer-events: none;
 }
 
 /* Atmospheric depth gradient */
@@ -235,11 +345,12 @@ body {
   position: absolute;
   bottom: 0; left: 0;
   width: 100%; height: 45%;
+  /* Glowing luminous forest mist instead of dark muddy shade */
   background: linear-gradient(
     to bottom,
     transparent 0%,
-    rgba(5, 20, 12, 0.1) 50%,
-    rgba(5, 20, 12, 0.3) 100%
+    rgba(58, 255, 122, 0.04) 50%,
+    rgba(58, 255, 122, 0.15) 100%
   );
   z-index: 3;
   pointer-events: none;
@@ -249,11 +360,12 @@ body {
 .horizon-vignette {
   position: absolute;
   inset: 0;
+  /* Softened vignette that preserves edge brightness and detail */
   background: radial-gradient(
     ellipse 120% 60% at 50% 100%,
-    transparent 30%,
-    rgba(0,0,0,0.4) 80%,
-    rgba(0,0,0,0.7) 100%
+    transparent 40%,
+    rgba(0,0,0,0.2) 80%,
+    rgba(0,0,0,0.35) 100%
   );
   z-index: 4;
   pointer-events: none;
@@ -335,11 +447,11 @@ body {
   color: #fff;
   overflow: hidden;
 
-  /* Deep mangrove night */
+  /* Rich luminous deep forest and cyan night gradient */
   background:
-    radial-gradient(ellipse at 30% 70%, rgba(10, 80, 30, 0.4) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 20%, rgba(0, 60, 40, 0.3) 0%, transparent 50%),
-    linear-gradient(160deg, #010d05 0%, #020b10 50%, #000508 100%);
+    radial-gradient(ellipse at 30% 70%, rgba(10, 80, 30, 0.5) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 20%, rgba(0, 80, 60, 0.4) 0%, transparent 50%),
+    linear-gradient(160deg, #02200f 0%, #041a22 50%, #010a12 100%);
 }
 
 /* Subtle grid overlay for depth */
@@ -372,17 +484,17 @@ body {
 }
 
 .light-blob.b1 {
-  background: radial-gradient(circle, rgba(58, 255, 122, 0.25) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(58, 255, 122, 0.4) 0%, transparent 70%);
   top: -10%; left: -10%;
   animation-delay: 0s;
 }
 .light-blob.b2 {
-  background: radial-gradient(circle, rgba(0, 180, 100, 0.2) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(0, 220, 140, 0.35) 0%, transparent 70%);
   bottom: -15%; right: -10%;
   animation-delay: 6s;
 }
 .light-blob.b3 {
-  background: radial-gradient(circle, rgba(58, 255, 122, 0.15) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(58, 255, 122, 0.25) 0%, transparent 70%);
   top: 20%; left: 30%;
   animation-delay: 12s;
 }
@@ -720,13 +832,18 @@ body {
   animation: float-hero 4s infinite ease-in-out;
 }
 
-.auth-hero img {
+.auth-crab-sprite {
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  filter: drop-shadow(0 0 30px rgba(58, 255, 122, 0.5));
+  background-image: url('/crab_strip.png');
+  background-size: 1100% 100%; /* 11 frames */
+  background-repeat: no-repeat;
   image-rendering: pixelated;
-  mix-blend-mode: screen;
+  filter: drop-shadow(0 0 35px rgba(58, 255, 122, 0.65));
+}
+
+.auth-crab-sprite.walking {
+  animation: sprite-walk 0.7s steps(11) infinite;
 }
 
 @keyframes float-hero {
@@ -842,6 +959,30 @@ body {
   font-size: 28px;
   color: #3aff7a;
   text-shadow: 0 0 20px rgba(58,255,122,0.6);
+}
+
+.primo-go-record {
+  margin-top: 12px;
+}
+
+.record-new {
+  font-family: 'Press Start 2P', cursive;
+  font-size: 13px;
+  color: #f5c518;
+  text-shadow: 0 0 16px rgba(245,197,24,0.8);
+  animation: pulse-record 0.8s ease-in-out infinite alternate;
+}
+
+.record-best {
+  font-family: 'Press Start 2P', cursive;
+  font-size: 10px;
+  color: rgba(255,255,255,0.4);
+  letter-spacing: 1px;
+}
+
+@keyframes pulse-record {
+  from { opacity: 0.7; transform: scale(1); }
+  to   { opacity: 1;   transform: scale(1.05); }
 }
 
 /* ============================================

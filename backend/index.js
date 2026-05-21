@@ -12,7 +12,7 @@ app.use(express.json());
 app.use('/api', authRoutes);
 app.use('/api/scores', scoreRoutes);
 
-const PORT = 3001;
+const PORT = 3002;
 
 // Sync database and start
 sequelize.sync().then(() => {

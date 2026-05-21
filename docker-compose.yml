@@ -12,5 +12,27 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  backend:
+    build: ./backend
+    container_name: uca_backend
+    restart: always
+    ports:
+      - "3002:3002"
+    depends_on:
+      - db
+    volumes:
+      - ./backend/database.sqlite:/app/database.sqlite
+    environment:
+      NODE_ENV: production
+
+  frontend:
+    build: ./frontend
+    container_name: uca_frontend
+    restart: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:

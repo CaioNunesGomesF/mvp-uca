@@ -61,10 +61,15 @@ const Game = ({ onGameOver, score, setScore }) => {
   const collectibleDomRefs = useRef({})
   const dustDomRefs = useRef({})
 
+  // ── BACKGROUND TREES (decorative parallax elements) ──
+  const bgTreesRef = useRef([])        // [{id, x, layer:'far'|'mid'}]
+  const bgTreeDomRefs = useRef({})     // map id -> DOM node
+  const bgTreeTimerRef = useRef(0)
+
   // ── CONSTANTS ──
   const GRAVITY = 1.2
   const JUMP_FORCE = -22
-  const GROUND_HEIGHT = 160
+  const GROUND_HEIGHT = 130
   const CRAB_HEIGHT = 80
 
   playerRef.current.y = playerRef.current.y || groundYRef.current - CRAB_HEIGHT
@@ -172,9 +177,22 @@ const Game = ({ onGameOver, score, setScore }) => {
       keys.current[e.code] = true
       if (['Space', 'KeyW', 'ArrowUp'].includes(e.code)) { e.preventDefault(); performJump() }
       if (['KeyQ', 'ShiftLeft', 'ShiftRight'].includes(e.code)) { e.preventDefault(); performDash() }
+      if (['KeyS', 'ArrowDown'].includes(e.code)) {
+        // If in air, perform a down slap (angle 90). Otherwise just crouch/do nothing.
+        const inAir = playerRef.current.y < groundYRef.current - CRAB_HEIGHT
+        if (inAir) {
+          e.preventDefault()
+          performAttack(90)
+        }
+      }
+      if (['KeyJ', 'KeyF'].includes(e.code)) {
+        e.preventDefault()
+        performAttack(0)
+      }
     }
     const handleKeyUp = (e) => { keys.current[e.code] = false }
     const handleMouseDown = (e) => {
+      if (e.target.closest('.btn-mobile')) return
       if (e.target.tagName === 'BUTTON') return
       const rect = gameRef.current?.getBoundingClientRect()
       if (!rect) return
@@ -222,23 +240,25 @@ const Game = ({ onGameOver, score, setScore }) => {
 
     // Reset styles on mount/restart
     currentBiomeRef.current = 'MANGROVE'
-    if (skyDomRef.current) {
-      skyDomRef.current.style.backgroundImage = "url('/mangrove_bg_new.png')"
-      skyDomRef.current.style.backgroundSize = "1024px 200%"
-      skyDomRef.current.style.backgroundPositionY = "0%"
-      skyDomRef.current.style.filter = "brightness(1.35) contrast(1.1)"
-    }
+    // Sky and ground are now pure CSS — no JS overrides needed on init
     if (treeDomRef.current) {
-      treeDomRef.current.style.display = "block"
+      treeDomRef.current.style.display = "none"
+      treeDomRef.current.style.backgroundImage = ""
+      treeDomRef.current.style.backgroundSize = ""
+      treeDomRef.current.style.backgroundPositionY = ""
+      treeDomRef.current.style.filter = ""
     }
+    // Reset ground to pixel art style
     if (groundDomRef.current) {
-      groundDomRef.current.style.backgroundImage = `
-        linear-gradient(to bottom, #3aff7a 0%, #3aff7a 4px, transparent 4px),
-        linear-gradient(to bottom, rgba(255,255,255,0.05) 0%, transparent 40%),
-        url('/ground.png')
-      `
-      groundDomRef.current.style.boxShadow = "0 -5px 25px rgba(58, 255, 122, 0.2)"
+      groundDomRef.current.style.backgroundColor = 'transparent'
+      groundDomRef.current.style.backgroundImage = ''
+      groundDomRef.current.style.backgroundRepeat = ''
+      groundDomRef.current.style.backgroundSize = ''
+      groundDomRef.current.style.backgroundPositionY = ''
+      groundDomRef.current.style.borderTop = 'none'
+      groundDomRef.current.style.boxShadow = 'none'
     }
+
 
     const update = () => {
       frameCount++
@@ -275,41 +295,60 @@ const Game = ({ onGameOver, score, setScore }) => {
         if (isDownSlappingRef.current) isDownSlappingRef.current = false
       }
 
-      // ── BIOME TRANSITION (Trigger at 2km) ──
-      if (scoreRef.current >= 2000 && currentBiomeRef.current === 'MANGROVE') {
-        currentBiomeRef.current = 'CITY'
-        if (skyDomRef.current) {
-          skyDomRef.current.style.backgroundImage = "url('/calcadao_bg.png')"
-          skyDomRef.current.style.backgroundSize = "1024px 200%"
-          skyDomRef.current.style.backgroundPositionY = "100%" // Focus on the city panel
-          skyDomRef.current.style.filter = "brightness(1.1) contrast(1.1)"
-        }
-        if (treeDomRef.current) {
-          treeDomRef.current.style.display = "none" // City BG has trees already or clean look
-        }
-        if (groundDomRef.current) {
-          groundDomRef.current.style.backgroundImage = `
-            linear-gradient(to bottom, #ffffff 0%, #ffffff 3px, transparent 3px),
-            linear-gradient(to bottom, rgba(255,255,255,0.05) 0%, transparent 40%),
-            url('/city_ground.png')
-          `
-          groundDomRef.current.style.boxShadow = "0 -5px 25px rgba(255, 255, 255, 0.2)"
-        }
-      }
+
 
       // ── OBSTACLES: mutate in-place to avoid GC pressure ──
       obstacleTimerRef.current++
       if (obstacleTimerRef.current > nextObstacleTargetRef.current) {
-        const groupSize = Math.random() > 0.85 ? 2 : 1
-        let currentX = 1200 + Math.random() * 300
-        for (let i = 0; i < groupSize; i++) {
+        const isCombo = Math.random() > 0.85 // 15% chance to spawn a Rebound Combo!
+        const viewportW = gameRef.current ? gameRef.current.clientWidth : 1200
+        
+        if (isCombo) {
+          let currentX = viewportW + 50 + Math.random() * 150
+          // 1. Spawns a small log (springboard)
           obstaclesRef.current.push({
-            id: `o${Date.now()}${Math.random()}`,
+            id: `o_spring_${Date.now()}`,
             x: currentX,
-            y: groundYRef.current - 75 + (Math.random() * 10 - 5),
-            width: 80, height: 80,
+            y: groundYRef.current - 42,
+            type: 'log',
+            width: 80,
+            height: 42,
           })
-          currentX += 350 + Math.random() * 250
+          
+          // 2. Spawns a colossal megalog slightly ahead (the wall)
+          obstaclesRef.current.push({
+            id: `o_wall_${Date.now()}`,
+            x: currentX + 220, // Perfectly spaced for the rebound timing!
+            y: groundYRef.current - 175,
+            type: 'megalog', // Giant Colossal Trunk
+            width: 70,
+            height: 175,
+          })
+        } else {
+          // Normal spawning
+          const groupSize = Math.random() > 0.85 ? 2 : 1
+          let currentX = viewportW + Math.random() * 200
+          for (let i = 0; i < groupSize; i++) {
+            const types = ['root', 'barrel', 'rock', 'log', 'biglog', 'biglog_horiz']
+            const randomType = types[Math.floor(Math.random() * types.length)]
+            
+            let w = 80, h = 80
+            if (randomType === 'barrel') { w = 60; h = 70 }
+            else if (randomType === 'log') { w = 80; h = 42 }
+            else if (randomType === 'rock') { w = 70; h = 55 }
+            else if (randomType === 'biglog') { w = 65; h = 130 }
+            else if (randomType === 'biglog_horiz') { w = 150; h = 50 }
+            
+            obstaclesRef.current.push({
+              id: `o${Date.now()}${Math.random()}`,
+              x: currentX,
+              y: groundYRef.current - h, // Base perfectly sits on the ground!
+              type: randomType,
+              width: w,
+              height: h,
+            })
+            currentX += w + 120 + Math.random() * 100 // space out grouped obstacles
+          }
         }
         obstacleTimerRef.current = 0
         const baseRate = Math.max(40, 110 - (scoreRef.current / 12))
@@ -323,17 +362,17 @@ const Game = ({ onGameOver, score, setScore }) => {
         const hitBoxX = playerRef.current.x + 10
         const hitBoxWidth = isAttackingRef.current ? 110 : 60
         const isColliding = (
-          hitBoxX < o.x + 55 && hitBoxX + hitBoxWidth > o.x + 25 &&
-          playerRef.current.y + 15 < o.y + 80 &&
-          playerRef.current.y + (isDownSlappingRef.current ? 90 : 65) > o.y + 30
+          hitBoxX < o.x + o.width - 10 && hitBoxX + hitBoxWidth > o.x + 10 &&
+          playerRef.current.y + 15 < o.y + o.height &&
+          playerRef.current.y + (isDownSlappingRef.current ? 90 : 65) > o.y + 10
         )
         let remove = o.x < -100
         if (isColliding) {
           if (isDownSlappingRef.current) {
-            playerRef.current.vy = JUMP_FORCE * 0.8
+            playerRef.current.vy = JUMP_FORCE * 0.95 // Stronger bounce off the big elements!
             playerRef.current.jumps = 1
-            scoreRef.current += 100
-            gameSpeedRef.current = Math.min(gameSpeedRef.current + 0.2, 25)
+            scoreRef.current += 150 // More points for breaking/bouncing off a big obstacle!
+            gameSpeedRef.current = Math.min(gameSpeedRef.current + 0.3, 25)
             playSound(400, 'square', 0.15, 800)
             isDownSlappingRef.current = false
             remove = true
@@ -351,7 +390,8 @@ const Game = ({ onGameOver, score, setScore }) => {
       // ── COLLECTIBLES: mutate in-place ──
       collectibleTimerRef.current++
       if (collectibleTimerRef.current > 150) {
-        collectiblesRef.current.push({ id: `c${Date.now()}`, x: 1200, y: groundYRef.current - 60 })
+        const viewportW = gameRef.current ? gameRef.current.clientWidth : 1200
+        collectiblesRef.current.push({ id: `c${Date.now()}`, x: viewportW, y: groundYRef.current - 60 })
         collectibleTimerRef.current = 0
       }
       const toRemoveCol = []
@@ -426,17 +466,164 @@ const Game = ({ onGameOver, score, setScore }) => {
       // Obstacles DOM sync (throttled to every 2 frames)
       if (frameCount % 2 === 0) {
         const obScene = gameRef.current?.querySelector('.scenario-area')
-        const obsImg = currentBiomeRef.current === 'CITY' ? '/car_obstacle.png' : '/mangrove_root.png'
-        const obsSize = currentBiomeRef.current === 'CITY' ? '85px' : '80px'
         obstaclesRef.current.forEach(o => {
           let el = obstacleDomRefs.current[o.id]
           if (!el && obScene) {
             el = document.createElement('div')
-            el.style.cssText = `position:absolute;width:${obsSize};height:${obsSize};background-image:url('${obsImg}');background-size:contain;background-position:center;background-repeat:no-repeat;image-rendering:pixelated;z-index:9;will-change:transform;`
+            
+            if (o.type === 'root') {
+              el.style.cssText = `position:absolute;width:80px;height:80px;background-image:url('/mangrove_root.png');background-size:contain;background-position:center;background-repeat:no-repeat;image-rendering:pixelated;z-index:9;will-change:transform;`
+            } else if (o.type === 'barrel') {
+              // Beautiful pixel-art style Barrel built dynamically with CSS
+              el.style.cssText = `
+                position:absolute;width:60px;height:70px;
+                background: #8b5a2b;
+                background-image: 
+                  linear-gradient(90deg, rgba(0,0,0,0.2) 20%, transparent 20%, transparent 40%, rgba(0,0,0,0.2) 40%, rgba(0,0,0,0.2) 60%, transparent 60%, transparent 80%, rgba(0,0,0,0.2) 80%),
+                  linear-gradient(to bottom, #5c3a21 0%, #8b5a2b 20%, #8b5a2b 80%, #5c3a21 100%);
+                border-radius: 12px / 20px;
+                border: 4px solid #3d2516;
+                box-shadow: inset 0 0 10px rgba(0,0,0,0.6);
+                z-index:9;
+                will-change:transform;
+              `
+              // Add iron bands top and bottom
+              const band1 = document.createElement('div')
+              band1.style.cssText = `position:absolute; left:0; top:12px; width:100%; height:6px; background:#4a4a4a; border-top:2px solid #7a7a7a; border-bottom:2px solid #2a2a2a;`
+              const band2 = document.createElement('div')
+              band2.style.cssText = `position:absolute; left:0; bottom:12px; width:100%; height:6px; background:#4a4a4a; border-top:2px solid #7a7a7a; border-bottom:2px solid #2a2a2a;`
+              el.appendChild(band1)
+              el.appendChild(band2)
+            } else if (o.type === 'log') {
+              // Beautiful fallen Log built dynamically with CSS
+              el.style.cssText = `
+                position:absolute;width:80px;height:42px;
+                background: #5c3a21;
+                border: 4px solid #2d1b0f;
+                border-radius: 6px;
+                background-image: linear-gradient(to bottom, rgba(255,255,255,0.05) 50%, rgba(0,0,0,0.15) 50%);
+                z-index:9;
+                will-change:transform;
+              `
+              // Log ends showing inner wood rings
+              const endL = document.createElement('div')
+              endL.style.cssText = `position:absolute; top:0; left:-6px; width:12px; height:100%; background:#d2b48c; border:4px solid #2d1b0f; border-radius:50%;`
+              const endR = document.createElement('div')
+              endR.style.cssText = `position:absolute; top:0; right:-6px; width:12px; height:100%; background:#d2b48c; border:4px solid #2d1b0f; border-radius:50%;`
+              el.appendChild(endL)
+              el.appendChild(endR)
+            } else if (o.type === 'biglog') {
+              // Tall Vertical Trunk/Log built dynamically with CSS
+              el.style.cssText = `
+                position:absolute;width:65px;height:130px;
+                background: #5c3a21;
+                border: 4px solid #2d1b0f;
+                border-radius: 12px 12px 6px 6px;
+                background-image: 
+                  linear-gradient(90deg, rgba(0,0,0,0.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0.05) 75%, rgba(0,0,0,0.15) 75%),
+                  linear-gradient(to bottom, #422817 0%, #5c3a21 15%, #5c3a21 90%, #2d1b0f 100%);
+                box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+                z-index:9;
+                will-change:transform;
+              `
+              // Wood ring top
+              const ringTop = document.createElement('div')
+              ringTop.style.cssText = `position:absolute; top:-4px; left:4px; width:49px; height:10px; background:#d2b48c; border:4px solid #2d1b0f; border-radius:50%;`
+              
+              // Leaves sprouting out from trunk
+              const leaf1 = document.createElement('div')
+              leaf1.style.cssText = `position:absolute; top:30px; left:-14px; width:22px; height:16px; background:#22c55e; border:3px solid #166534; border-radius:12px 0 12px 0; transform:rotate(-20deg);`
+              const leaf2 = document.createElement('div')
+              leaf2.style.cssText = `position:absolute; top:65px; right:-14px; width:22px; height:16px; background:#16a34a; border:3px solid #14532d; border-radius:0 12px 0 12px; transform:rotate(15deg);`
+              
+              el.appendChild(ringTop)
+              el.appendChild(leaf1)
+              el.appendChild(leaf2)
+            } else if (o.type === 'biglog_horiz') {
+              // Giant Horizontal Log built dynamically with CSS
+              el.style.cssText = `
+                position:absolute;width:150px;height:50px;
+                background: #5c3a21;
+                border: 4px solid #2d1b0f;
+                border-radius: 6px;
+                background-image: 
+                  linear-gradient(to bottom, rgba(255,255,255,0.08) 30%, transparent 30%, transparent 70%, rgba(0,0,0,0.2) 70%),
+                  linear-gradient(90deg, rgba(0,0,0,0.1) 10%, transparent 10%, transparent 90%, rgba(0,0,0,0.1) 90%);
+                box-shadow: inset 0 0 12px rgba(0,0,0,0.5);
+                z-index:9;
+                will-change:transform;
+              `
+              // Log ends showing inner wood rings
+              const endL = document.createElement('div')
+              endL.style.cssText = `position:absolute; top:0; left:-6px; width:12px; height:100%; background:#d2b48c; border:4px solid #2d1b0f; border-radius:50%;`
+              const endR = document.createElement('div')
+              endR.style.cssText = `position:absolute; top:0; right:-6px; width:12px; height:100%; background:#d2b48c; border:4px solid #2d1b0f; border-radius:50%;`
+              
+              // Leaves sprouting out from top
+              const leaf1 = document.createElement('div')
+              leaf1.style.cssText = `position:absolute; top:-10px; left:40px; width:22px; height:16px; background:#22c55e; border:3px solid #166534; border-radius:12px 0 12px 0; transform:rotate(-10deg);`
+              const leaf2 = document.createElement('div')
+              leaf2.style.cssText = `position:absolute; top:-12px; left:90px; width:25px; height:18px; background:#16a34a; border:3px solid #14532d; border-radius:0 12px 0 12px; transform:rotate(20deg);`
+              
+              el.appendChild(endL)
+              el.appendChild(endR)
+              el.appendChild(leaf1)
+              el.appendChild(leaf2)
+            } else if (o.type === 'megalog') {
+              // Megalog - Giant Colossal Redwood-like Trunk built dynamically with CSS
+              el.style.cssText = `
+                position:absolute;width:70px;height:175px;
+                background: #3e271a;
+                border: 5px solid #1c100a;
+                border-radius: 16px 16px 4px 4px;
+                background-image: 
+                  linear-gradient(90deg, rgba(0,0,0,0.3) 15%, transparent 15%, transparent 85%, rgba(0,0,0,0.3) 85%),
+                  linear-gradient(to bottom, #2b1a11 0%, #3e271a 10%, #3e271a 90%, #1c100a 100%);
+                box-shadow: inset 0 0 15px rgba(0,0,0,0.7);
+                z-index:9;
+                will-change:transform;
+              `
+              // Giant wood ring top
+              const ringTop = document.createElement('div')
+              ringTop.style.cssText = `position:absolute; top:-5px; left:4px; width:52px; height:10px; background:#c1a076; border:4px solid #1c100a; border-radius:50%;`
+              
+              // Vines/Leaves hanging down
+              const vine = document.createElement('div')
+              vine.style.cssText = `position:absolute; top:25px; left:12px; width:4px; height:80px; background:#15803d; border-radius:2px; opacity:0.8;`
+              const leaf1 = document.createElement('div')
+              leaf1.style.cssText = `position:absolute; top:35px; left:2px; width:16px; height:12px; background:#22c55e; border-radius:50%; transform:rotate(-45deg);`
+              const leaf2 = document.createElement('div')
+              leaf2.style.cssText = `position:absolute; top:65px; left:8px; width:16px; height:12px; background:#16a34a; border-radius:50%; transform:rotate(45deg);`
+              
+              el.appendChild(ringTop)
+              el.appendChild(vine)
+              el.appendChild(leaf1)
+              el.appendChild(leaf2)
+            } else {
+              // Natural Mossy Rock built dynamically with CSS
+              el.style.cssText = `
+                position:absolute;width:70px;height:55px;
+                background: #4a5357;
+                background-image: radial-gradient(circle at 30% 30%, #5e6b70 20%, transparent 60%);
+                border: 4px solid #212527;
+                border-radius: 40% 50% 35% 30%;
+                z-index:9;
+                will-change:transform;
+              `
+              // Moss patches
+              const moss = document.createElement('div')
+              moss.style.cssText = `position:absolute; top:4px; left:12px; width:35px; height:12px; background:#4d7c0f; border-radius:50%; filter: blur(0.5px);`
+              el.appendChild(moss)
+            }
+
             obScene.appendChild(el)
             obstacleDomRefs.current[o.id] = el
           }
-          if (el) el.style.transform = `translate3d(${o.x}px, ${o.y}px, 0)`
+          if (el) {
+            // Since y is already perfectly grounded at spawn (y = groundY - h),
+            // we do NOT add any vertical offsets here. This stops obstacles from clipping!
+            el.style.transform = `translate3d(${o.x}px, ${o.y}px, 0)`
+          }
         })
         Object.keys(obstacleDomRefs.current).forEach(id => {
           if (!obstaclesRef.current.find(o => o.id === id)) {
@@ -468,16 +655,112 @@ const Game = ({ onGameOver, score, setScore }) => {
         scoreDomRef.current.textContent = `${(scoreRef.current / 1000).toFixed(2)} KM`
       }
 
-      // Ground parallax (throttled)
+      // ── BACKGROUND TREES (decorative parallax, 2 layers) ──
+      bgTreeTimerRef.current++
+
+      // Spawn a new tree every ~80 frames (staggered)
+      if (bgTreeTimerRef.current > 80 + Math.random() * 60) {
+        bgTreeTimerRef.current = 0
+        const layer = Math.random() > 0.45 ? 'far' : 'mid'
+        // Store the Y offset once at spawn to avoid per-frame jitter
+        const yOff = layer === 'far' ? 160 + Math.random() * 30 : 110 + Math.random() * 20
+        bgTreesRef.current.push({ id: `bt${Date.now()}${Math.random()}`, x: 1300, layer, yOff })
+      }
+
+      // Scroll + sync each tree DOM element
+      if (frameCount % 2 === 0) {
+        const obScene = gameRef.current?.querySelector('.scenario-area')
+        bgTreesRef.current.forEach(t => {
+          // Speed: far = 30% of worldSpeed, mid = 55%
+          const speed = t.layer === 'far' ? 0.30 : 0.55
+          t.x -= gameSpeedRef.current * speed
+
+          let el = bgTreeDomRefs.current[t.id]
+          if (!el && obScene) {
+            el = document.createElement('div')
+            const isFar = t.layer === 'far'
+            // Visual differences per layer
+            const trunkH = isFar ? 80 + Math.random() * 50 : 50 + Math.random() * 30
+            const trunkW = isFar ? 10 + Math.random() * 6 : 7 + Math.random() * 5
+            const canopyW = isFar ? 60 + Math.random() * 40 : 40 + Math.random() * 25
+            const canopyH = isFar ? 80 + Math.random() * 40 : 55 + Math.random() * 25
+            // Darker/bluer for far layer, greener for mid
+            const trunkColor = isFar ? '#3d2810' : '#5a3a18'
+            const canopyColor = isFar
+              ? `hsl(${130 + Math.random() * 20}, ${40 + Math.random() * 15}%, ${18 + Math.random() * 8}%)`
+              : `hsl(${125 + Math.random() * 25}, ${55 + Math.random() * 20}%, ${25 + Math.random() * 10}%)`
+            const totalH = trunkH + canopyH
+            const bottomOffset = 130 // ground height
+            const yPos = groundYRef.current - totalH + 5 // sit on ground
+            const opacity = isFar ? 0.55 + Math.random() * 0.2 : 0.75 + Math.random() * 0.2
+            const zIndex = isFar ? 2 : 4 // far behind sky layers, mid in front of bg
+
+            // Build the tree: canopy blob on top of trunk
+            el.style.cssText = `
+              position:absolute;
+              left:0; top:0;
+              width:${Math.max(canopyW, trunkW)}px;
+              height:${totalH}px;
+              opacity:${opacity};
+              pointer-events:none;
+              z-index:${zIndex};
+              will-change:transform;
+            `
+            // Trunk
+            const trunk = document.createElement('div')
+            trunk.style.cssText = `
+              position:absolute;
+              bottom:0;
+              left:50%;
+              transform:translateX(-50%);
+              width:${trunkW}px;
+              height:${trunkH}px;
+              background:${trunkColor};
+              border-radius:${trunkW / 2}px ${trunkW / 2}px 0 0;
+            `
+            // Canopy (one big blob + two side ones for mangrove feel)
+            const canopy = document.createElement('div')
+            canopy.style.cssText = `
+              position:absolute;
+              bottom:${trunkH - 10}px;
+              left:50%;
+              transform:translateX(-50%);
+              width:${canopyW}px;
+              height:${canopyH}px;
+              background:${canopyColor};
+              border-radius:50% 50% 40% 40%;
+              box-shadow: ${-canopyW * 0.3}px ${canopyH * 0.2}px 0 ${canopyColor},
+                          ${canopyW * 0.3}px ${canopyH * 0.15}px 0 ${canopyColor};
+            `
+            el.appendChild(trunk)
+            el.appendChild(canopy)
+            obScene.appendChild(el)
+            bgTreeDomRefs.current[t.id] = el
+          }
+          if (el) {
+            el.style.transform = `translate3d(${t.x}px, ${groundYRef.current - t.yOff}px, 0)`
+          }
+        })
+
+        // Remove trees that went off-screen left
+        bgTreesRef.current = bgTreesRef.current.filter(t => {
+          if (t.x < -200) {
+            bgTreeDomRefs.current[t.id]?.remove()
+            delete bgTreeDomRefs.current[t.id]
+            return false
+          }
+          return true
+        })
+      }
+
+      // Ground parallax — scroll the real texture
       if (frameCount % 2 === 0) {
         if (groundDomRef.current) {
-          const groundOffset = (scoreRef.current * -6) % 200
-          groundDomRef.current.style.backgroundPositionX = `0, 0, ${groundOffset}px`
+          const groundOffset = (scoreRef.current * -4) % 800
+          groundDomRef.current.style.backgroundPositionX = `${groundOffset}px`
         }
-        // SCENERY PARALLAX
-        const skyOffset = (scoreRef.current * -0.3) % 1024
+        // TREE PARALLAX (sky is now CSS gradient, no X offset needed)
         const treeOffset = (scoreRef.current * -1.2) % 1024
-        if (skyDomRef.current) skyDomRef.current.style.backgroundPositionX = `${skyOffset}px`
         if (treeDomRef.current) treeDomRef.current.style.backgroundPositionX = `${treeOffset}px`
       }
 
@@ -490,17 +773,40 @@ const Game = ({ onGameOver, score, setScore }) => {
       // Cleanup DOM nodes
       Object.values(obstacleDomRefs.current).forEach(el => el?.remove())
       Object.values(collectibleDomRefs.current).forEach(el => el?.remove())
+      Object.values(bgTreeDomRefs.current).forEach(el => el?.remove())
       obstacleDomRefs.current = {}
       collectibleDomRefs.current = {}
+      bgTreeDomRefs.current = {}
+      bgTreesRef.current = []
+      bgTreeTimerRef.current = 0
     }
   }, [onGameOver, playSound]) // minimal deps — stable via refs
 
   return (
     <div className="game-viewport" ref={gameRef}>
       <div className="scenario-area">
-        {/* Layer 1: Sky/Stars */}
+        {/* Layer 1: Sky gradient */}
         <div className="parallax-bg" ref={skyDomRef} />
-        {/* Layer 2: Trees */}
+
+        {/* Layer 2: Clouds (pure CSS animation) */}
+        <div className="sky-cloud c1"><div className="cloud-body" /></div>
+        <div className="sky-cloud c2"><div className="cloud-body" /></div>
+        <div className="sky-cloud c3"><div className="cloud-body" /></div>
+        <div className="sky-cloud c4"><div className="cloud-body" /></div>
+        <div className="sky-cloud c5"><div className="cloud-body" /></div>
+
+        {/* Layer 3: Birds (pure CSS animation) */}
+        <div className="sky-bird b1"><div className="bird-wing"><div className="wing-l" /><div className="wing-r" /></div></div>
+        <div className="sky-bird b2"><div className="bird-wing"><div className="wing-l" /><div className="wing-r" /></div></div>
+        <div className="sky-bird b3"><div className="bird-wing"><div className="wing-l" /><div className="wing-r" /></div></div>
+        <div className="sky-bird b4"><div className="bird-wing"><div className="wing-l" /><div className="wing-r" /></div></div>
+        <div className="sky-bird b5"><div className="bird-wing"><div className="wing-l" /><div className="wing-r" /></div></div>
+        {/* Mini flock */}
+        <div className="sky-bird f1"><div className="bird-wing"><div className="wing-l" /><div className="wing-r" /></div></div>
+        <div className="sky-bird f2"><div className="bird-wing"><div className="wing-l" /><div className="wing-r" /></div></div>
+        <div className="sky-bird f3"><div className="bird-wing"><div className="wing-l" /><div className="wing-r" /></div></div>
+
+        {/* Layer 4: Trees */}
         <div className="parallax-trees" ref={treeDomRef} />
 
         {/* ── HUD ── */}
@@ -603,6 +909,35 @@ const Game = ({ onGameOver, score, setScore }) => {
               <div className="slash-effect" style={{ left: '20px', top: '-50px' }} />
             </div>
           )}
+        </div>
+
+        {/* ── VIRTUAL GAMEPAD HUD (MOBILE ONLY) ── */}
+        <div className="mobile-controls">
+          <div className="mobile-left-pad">
+            <div 
+              className="btn-mobile btn-mobile-dash" 
+              onPointerDown={() => performDash()}
+            >
+              <span className="btn-icon">⚡</span>
+              <span>DASH</span>
+            </div>
+            <div 
+              className="btn-mobile btn-mobile-down" 
+              onPointerDown={() => performAttack(90)}
+            >
+              <span className="btn-icon">👇</span>
+              <span>TAPA BAIXO</span>
+            </div>
+          </div>
+          <div className="mobile-right-pad">
+            <div 
+              className="btn-mobile btn-mobile-jump" 
+              onPointerDown={() => performJump()}
+            >
+              <span className="btn-icon">⇧</span>
+              <span>PULO</span>
+            </div>
+          </div>
         </div>
 
       </div>

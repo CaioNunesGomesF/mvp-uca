@@ -8,20 +8,52 @@ const Overlay = ({ type, score, onStart, onRestart, onShowScoreboard, onBack, hi
   const [scores, setScores] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Fetch real scores from API
+  // Fetch real scores from API, fallback to localStorage when offline
   useEffect(() => {
     if (type === 'SCOREBOARD') {
       setIsLoading(true);
-      fetch('http://localhost:6000/api/scores')
+      fetch('http://localhost:3002/api/scores')
         .then(res => res.json())
         .then(data => {
-          setScores(Array.isArray(data) ? data : []);
+          let apiScores = Array.isArray(data) ? data : [];
+          
+          // Get local highscore
+          const localBest = localStorage.getItem('uca_highscore')
+          const localUser = localStorage.getItem('uca_user')
+          const userName = localUser ? JSON.parse(localUser).username : 'Você'
+          
+          if (localBest) {
+            const localKm = parseFloat(localBest) / 1000
+            
+            // Check if this username is already in the API scores list
+            const isAlreadyInApi = apiScores.some(entry => entry.User?.username === userName)
+            
+            if (!isAlreadyInApi && localKm > 0) {
+              // Add the local score to the ranking
+              apiScores.push({
+                km: localKm,
+                User: { username: userName },
+                local: true
+              })
+              // Re-sort ranking list descending
+              apiScores.sort((a, b) => b.km - a.km)
+            }
+          }
+          
+          setScores(apiScores);
           setIsLoading(false);
         })
-        .catch(err => {
-          console.error("Erro ao carregar placar", err);
+        .catch(() => {
+          // Backend offline — show local best score from localStorage
+          const localBest = localStorage.getItem('uca_highscore')
+          const localUser = localStorage.getItem('uca_user')
+          const userName = localUser ? JSON.parse(localUser).username : 'Você'
+          if (localBest) {
+            setScores([{ km: parseFloat(localBest) / 1000, User: { username: userName }, local: true }])
+          } else {
+            setScores([])
+          }
           setIsLoading(false);
-          setScores([]); // Fallback to empty list
         });
     }
   }, [type]);
@@ -37,7 +69,7 @@ const Overlay = ({ type, score, onStart, onRestart, onShowScoreboard, onBack, hi
     const endpoint = isRegistering ? 'register' : 'login';
     
     try {
-      const response = await fetch(`http://localhost:6000/api/${endpoint}`, {
+      const response = await fetch(`http://localhost:3002/api/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: nameInput, password: passwordInput })
@@ -105,7 +137,7 @@ const Overlay = ({ type, score, onStart, onRestart, onShowScoreboard, onBack, hi
         {type === 'USER_SETUP' ? (
           <div className="auth-card-container">
             <div className="auth-hero">
-              <img src="/uca_crab.png" alt="Uça Hero" />
+              <div className="auth-crab-sprite" />
             </div>
             
             <div className="setup-card premium">
@@ -148,6 +180,11 @@ const Overlay = ({ type, score, onStart, onRestart, onShowScoreboard, onBack, hi
         ) : type === 'SCOREBOARD' ? (
           <div className="scoreboard-view premium">
             <div className="primo-logo small">RANKING GLOBAL</div>
+            {scores[0]?.local && (
+              <div style={{ fontSize: '8px', color: 'rgba(255,200,50,0.7)', fontFamily: "'Press Start 2P', cursive", marginBottom: '8px', letterSpacing: '1px' }}>
+                ⚠ SERVIDOR OFFLINE — RECORDE LOCAL
+              </div>
+            )}
             <div className="scoreboard-list">
               {isLoading ? (
                 <div className="loading-text">CARREGANDO...</div>
@@ -155,7 +192,23 @@ const Overlay = ({ type, score, onStart, onRestart, onShowScoreboard, onBack, hi
                 scores.map((entry, idx) => (
                   <div key={idx} className={`score-item ${entry.User?.username === username ? 'highlight' : ''}`}>
                     <span className="rank">{idx + 1}</span>
-                    <span className="name">{entry.User?.username || 'Anônimo'}</span>
+                    <span className="name" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {entry.User?.username || 'Anônimo'}
+                      {entry.local && (
+                        <span style={{ 
+                          fontSize: '8px', 
+                          background: 'rgba(255, 193, 7, 0.15)', 
+                          color: '#ffc107', 
+                          padding: '1px 5px', 
+                          borderRadius: '3px', 
+                          border: '1px solid rgba(255, 193, 7, 0.35)', 
+                          fontFamily: "'Press Start 2P', cursive",
+                          letterSpacing: '0px'
+                        }}>
+                          LOCAL
+                        </span>
+                      )}
+                    </span>
                     <span className="km">{entry.km?.toFixed(2)} KM</span>
                   </div>
                 ))
@@ -196,6 +249,14 @@ const Overlay = ({ type, score, onStart, onRestart, onShowScoreboard, onBack, hi
                 <div className="game-over-stats">
                   <div className="primo-go-title">VOCÊ CORREU</div>
                   <div className="primo-go-stat">{(score / 1000).toFixed(2)} KM</div>
+                  {highScore > 0 && (
+                    <div className="primo-go-record">
+                      {score >= highScore
+                        ? <span className="record-new">🏆 NOVO RECORDE!</span>
+                        : <span className="record-best">RECORDE: {(highScore / 1000).toFixed(2)} KM</span>
+                      }
+                    </div>
+                  )}
                 </div>
               )}
             </div>

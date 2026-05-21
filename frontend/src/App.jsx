@@ -9,10 +9,13 @@ function App() {
     return saved ? JSON.parse(saved) : null;
   });
 
-  // Start at START menu if we have a user, otherwise START menu too (but with login option)
   const [gameState, setGameState] = useState('START') 
   const [score, setScore] = useState(0)
-  const [highScore, setHighScore] = useState(0)
+  const [highScore, setHighScore] = useState(() => {
+    // Load best score from localStorage on first render
+    const saved = localStorage.getItem('uca_highscore')
+    return saved ? parseFloat(saved) : 0
+  })
 
   useEffect(() => {
     if (user) {
@@ -28,17 +31,22 @@ function App() {
   const endGame = async (finalScore) => {
     setGameState('GAME_OVER')
     setScore(finalScore)
-    if (finalScore > highScore) setHighScore(finalScore)
+
+    // Always update local highscore first (works offline too)
+    if (finalScore > highScore) {
+      setHighScore(finalScore)
+      localStorage.setItem('uca_highscore', String(finalScore))
+    }
     
     if (user && user.id && user.id !== 'GUEST') {
       try {
-        await fetch('http://localhost:6000/api/scores', {
+        await fetch('http://localhost:3002/api/scores', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId: user.id, km: finalScore / 1000 })
         });
       } catch (err) {
-        console.error("Erro ao salvar no banco", err);
+        console.warn("Backend offline — score salvo apenas localmente");
       }
     }
   }
@@ -96,7 +104,8 @@ function App() {
       {gameState === 'GAME_OVER' && (
         <Overlay 
           type="GAME_OVER" 
-          score={score} 
+          score={score}
+          highScore={highScore}
           onRestart={startGame} 
           onShowScoreboard={showScoreboard}
           username={user?.username}

@@ -3,15 +3,27 @@ const router = express.Router();
 const Score = require('../models/Score');
 const User = require('../models/User');
 
-// Get Top 10
+// Get Top 10 (Unique Best Score Per User)
 router.get('/', async (req, res) => {
   try {
-    const scores = await Score.findAll({
-      limit: 10,
+    const allScores = await Score.findAll({
       order: [['km', 'DESC']],
       include: [{ model: User, attributes: ['username'] }]
     });
-    res.json(scores);
+
+    const uniqueScores = [];
+    const seenUsers = new Set();
+
+    for (const score of allScores) {
+      const username = score.User?.username || 'Anônimo';
+      if (!seenUsers.has(username)) {
+        seenUsers.add(username);
+        uniqueScores.push(score);
+      }
+      if (uniqueScores.length >= 10) break; // Limit to Top 10
+    }
+
+    res.json(uniqueScores);
   } catch (error) {
     res.status(500).json({ error: 'Erro ao buscar placar.' });
   }

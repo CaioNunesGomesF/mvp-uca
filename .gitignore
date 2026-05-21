@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.sqlite
+.DS_Store
+.idea/
+.vscode/
+.vite/
+.env
